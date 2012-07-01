@@ -33,6 +33,12 @@ JSFeature::WrapFeature(osgEarth::Features::Feature* feature, bool freeObject)
 {
   v8::HandleScope handle_scope;
 
+  if (!feature)
+  {
+    v8::Handle<v8::Object> obj;
+    return handle_scope.Close(obj);
+  }
+
   v8::Handle<v8::Object> obj = V8Util::WrapObject(feature, GetObjectTemplate());
 
   if (freeObject)
@@ -497,6 +503,12 @@ JSFilterContext::WrapFilterContext(osgEarth::Features::FilterContext* context, b
 {
   v8::HandleScope handle_scope;
 
+  if (!context)
+  {
+    v8::Handle<v8::Object> obj;
+    return handle_scope.Close(obj);
+  }
+
   v8::Handle<v8::Object> obj = V8Util::WrapObject(context, GetObjectTemplate());
 
   if (freeObject)
@@ -832,8 +844,15 @@ JSMapInfo::ToMapCallback(const v8::Arguments& args)
       osgEarth::SpatialReference* srs = V8Util::UnwrapObject<osgEarth::SpatialReference>(obj1);
 
       osg::Vec3d* out = new osg::Vec3d();
-      if (mapInfo->toMapPoint(*input, srs, *out))
-        return JSVec3d::WrapVec3d(out, true);
+
+      GeoPoint mapPoint;
+      mapPoint.fromWorld( srs, *input );
+      out->set( mapPoint.x(), mapPoint.y(), mapPoint.z() );
+
+      return JSVec3d::WrapVec3d(out, true);
+
+      //if (mapInfo->toMapPoint(*input, srs, *out))
+      //  return JSVec3d::WrapVec3d(out, true);
 
       delete out;
     }

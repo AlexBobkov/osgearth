@@ -27,8 +27,9 @@ SET(LIB_PUBLIC_HEADERS
     Cache
     CacheBin
     CachePolicy
-	CacheSeed
-	Capabilities
+    CacheSeed
+    Capabilities
+    ColorFilter
     Common
     CompositeTileSource
     Config
@@ -37,7 +38,7 @@ SET(LIB_PUBLIC_HEADERS
     CullingUtils
     DepthOffset
     DPLineSegmentIntersector
-	Draggers
+    Draggers
     DrapeableNode
     ECEF
     ElevationLayer
@@ -50,9 +51,9 @@ SET(LIB_PUBLIC_HEADERS
     GeoMath
     HeightFieldUtils
     HTTPClient
-    ImageToHeightFieldConverter
     ImageLayer
     ImageMosaic
+    ImageToHeightFieldConverter
     ImageUtils
     IOTypes
     JsonUtils
@@ -71,13 +72,13 @@ SET(LIB_PUBLIC_HEADERS
     ModelLayer
     ModelSource
     NodeUtils
-	Notify
-	optional
-	OverlayDecorator
-	Pickers
+    Notify
+    optional
+    OverlayDecorator
+    Pickers
     Profile
-	Progress
-	Random
+    Progress
+    Random
     Registry
     Revisioning
     ShaderComposition
@@ -99,8 +100,8 @@ SET(LIB_PUBLIC_HEADERS
     Units
     URI
     Utils
-	Version
-	VerticalDatum
+    Version
+    VerticalDatum
     Viewpoint
     XmlUtils
 )
@@ -131,13 +132,14 @@ ADD_LIBRARY(${LIB_NAME} SHARED
     Cache.cpp
     CachePolicy.cpp
     CacheSeed.cpp
-	Capabilities.cpp
+    Capabilities.cpp
+    ColorFilter.cpp
     CompositeTileSource.cpp
     Config.cpp
     Cube.cpp
     CullingUtils.cpp
     DepthOffset.cpp
-	Draggers.cpp
+    Draggers.cpp
     DPLineSegmentIntersector.cpp
     DrapeableNode.cpp
     ECEF.cpp
@@ -166,16 +168,16 @@ ADD_LIBRARY(${LIB_NAME} SHARED
     MaskNode.cpp
     MaskSource.cpp
     MemCache.cpp
-	MimeTypes.cpp
-	ModelLayer.cpp
-	ModelSource.cpp
-	NodeUtils.cpp
-	Notify.cpp
-	OverlayDecorator.cpp
-	Pickers.cpp
+    MimeTypes.cpp
+    ModelLayer.cpp
+    ModelSource.cpp
+    NodeUtils.cpp
+    Notify.cpp
+    OverlayDecorator.cpp
+    Pickers.cpp
     Profile.cpp
-	Progress.cpp
-	Random.cpp
+    Progress.cpp
+    Random.cpp
     Registry.cpp
     ShaderComposition.cpp
     ShaderUtils.cpp
@@ -197,7 +199,7 @@ ADD_LIBRARY(${LIB_NAME} SHARED
     URI.cpp
     Utils.cpp
     Version.cpp
-	VerticalDatum.cpp
+    VerticalDatum.cpp
     Viewpoint.cpp
     XmlUtils.cpp
 )

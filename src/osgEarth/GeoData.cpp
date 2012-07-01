@@ -273,7 +273,7 @@ GeoPoint::transform(const SpatialReference* outSRS) const
 }
 
 bool
-GeoPoint::transformZ(const AltitudeMode& altMode, const Terrain* terrain ) 
+GeoPoint::transformZ(const AltitudeMode& altMode, const TerrainHeightProvider* terrain ) 
 {
     double z;
     if ( transformZ(altMode, terrain, z) )
@@ -286,7 +286,7 @@ GeoPoint::transformZ(const AltitudeMode& altMode, const Terrain* terrain )
 }
 
 bool
-GeoPoint::transformZ(const AltitudeMode& altMode, const Terrain* terrain, double& out_z ) const
+GeoPoint::transformZ(const AltitudeMode& altMode, const TerrainHeightProvider* terrain, double& out_z ) const
 {
     if ( !isValid() ) return false;
     
@@ -345,6 +345,28 @@ GeoPoint::toWorld( osg::Vec3d& out_world ) const
     }
     return _srs->transformToWorld( _p, out_world );
 }
+
+bool
+GeoPoint::toWorld( osg::Vec3d& out_world, const TerrainHeightProvider* terrain ) const
+{
+    if ( !isValid() ) return false;
+    if ( _altMode == ALTMODE_ABSOLUTE )
+    {
+        return _srs->transformToWorld( _p, out_world );
+    }
+    else if ( terrain != 0L )
+    {
+        GeoPoint absPoint = *this;
+        absPoint.makeAbsolute( terrain );
+        return absPoint.toWorld( out_world );
+    }
+    else
+    {
+        OE_WARN << LC << "ILLEGAL: called GeoPoint::toWorld with AltitudeMode = RELATIVE_TO_TERRAIN" << std::endl;
+        return false;
+    }
+}
+
 
 bool
 GeoPoint::fromWorld(const SpatialReference* srs, const osg::Vec3d& world)
@@ -905,7 +927,14 @@ GeoExtent::toString() const
     else
         buf << std::setprecision(12) << "SW=" << west() << "," << south() << " NE=" << east() << "," << north();
 
-    buf << ", SRS=" << _srs->getName();
+    if (_srs.valid() == true)
+    {
+        buf << ", SRS=" << _srs->getName();
+    }
+    else
+    {
+        buf << ", SRS=NULL";
+    }
 
     std::string bufStr;
     bufStr = buf.str();
@@ -1237,11 +1266,14 @@ manualReproject(const osg::Image* image, const GeoExtent& src_extent, const GeoE
     const bool isSrcContiguous = src_extent.getSRS()->isContiguous();
 
     osg::Image *result = new osg::Image();
-    result->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE);
-    //Initialize the image to be completely transparent
+    //result->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE);
+    result->allocateImage(width, height, 1, image->getPixelFormat(), GL_UNSIGNED_BYTE);
+
+    //Initialize the image to be completely transparent/black
     memset(result->data(), 0, result->getImageSizeInBytes());
 
-    ImageUtils::PixelReader ra(result);
+    //ImageUtils::PixelReader ra(result);
+    ImageUtils::PixelWriter writer(result);
     const double dx = dest_extent.width() / (double)width;
     const double dy = dest_extent.height() / (double)height;
 
@@ -1380,13 +1412,17 @@ manualReproject(const osg::Image* image, const GeoExtent& src_extent, const GeoE
                     }
                 }
             }
-               
+
+            writer(color, c, r);
+
+#if 0
             unsigned char* rgba = const_cast<unsigned char*>(ra.data(c,r,0));
 
             rgba[0] = (unsigned char)(color.r() * 255);
             rgba[1] = (unsigned char)(color.g() * 255);
             rgba[2] = (unsigned char)(color.b() * 255);
             rgba[3] = (unsigned char)(color.a() * 255);
+#endif
 
             pixel++;            
         }
