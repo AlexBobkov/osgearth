@@ -335,6 +335,11 @@ VirtualProgram::apply( osg::State & state ) const
             {
                 VirtualProgram* nc = const_cast<VirtualProgram*>(this);
                 program = nc->buildProgram( state, accumShaderMap );
+
+				for( osg::Program::AttribBindingList::const_iterator attribute = attribs.begin(); attribute != attribs.end(); ++attribute )
+				{
+					program->addBindAttribLocation( attribute->first, attribute->second );
+				}
             }
         }
 
