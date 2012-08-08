@@ -68,7 +68,7 @@ osg::Referenced      ( true ),
 _mapOptions          ( options ),
 _initMapOptions      ( options ),
 _dataModelRevision   ( 0 )
-{            
+{
     if (_mapOptions.cachePolicy().isSet() &&
         _mapOptions.cachePolicy()->usage() == CachePolicy::USAGE_CACHE_ONLY )
     {
@@ -78,16 +78,22 @@ _dataModelRevision   ( 0 )
     // if the map was a cache policy set, make this the system-wide default, UNLESS
     // there ALREADY IS a registry default, in which case THAT will override THIS one.
     // (In other words, whichever one is set first wins.)
+    const optional<CachePolicy> regCachePolicy = Registry::instance()->defaultCachePolicy();
+
     if ( _mapOptions.cachePolicy().isSet() )
     {
-        if ( Registry::instance()->defaultCachePolicy().empty() )
+        if ( !regCachePolicy.isSet() )
+        {
             Registry::instance()->setDefaultCachePolicy( *_mapOptions.cachePolicy() );
+        }
         else
-            _mapOptions.cachePolicy() = Registry::instance()->defaultCachePolicy();
+        {
+            _mapOptions.cachePolicy() = *regCachePolicy;
+        }
     }
-    else if ( ! Registry::instance()->defaultCachePolicy().empty() )
+    else if ( regCachePolicy.isSet() )
     {
-        _mapOptions.cachePolicy() = Registry::instance()->defaultCachePolicy();
+        _mapOptions.cachePolicy() = *regCachePolicy;
     }
 
     // the map-side dbOptions object holds I/O information for all components.
@@ -95,9 +101,10 @@ _dataModelRevision   ( 0 )
 
     // we do our own caching
     _dbOptions->setObjectCacheHint( osgDB::Options::CACHE_NONE );
-    
-    // store the top-level referrer context in the options
-    URIContext( _mapOptions.referrer() ).store( _dbOptions );
+
+    // store the IO information in the top-level DB Options:
+    _mapOptions.cachePolicy()->apply( _dbOptions.get() );
+    URIContext( _mapOptions.referrer() ).apply( _dbOptions.get() );
 }
 
 Map::~Map()
@@ -383,14 +390,8 @@ Map::addImageLayer( ImageLayer* layer )
     unsigned int index = -1;
     if ( layer )
     {
-        // Set the DB options for the map from the layer
+        // Set the DB options for the map from the layer, including the cache policy.
         layer->setDBOptions( _dbOptions.get() );
-
-        // propagate the cache to the layer:
-        if (_mapOptions.cachePolicy().isSet())
-        {
-            layer->overrideCachePolicy( _mapOptions.cachePolicy().value() );
-        }
 
         // propagate the cache to the layer:
         layer->setCache( this->getCache() );
@@ -431,12 +432,6 @@ Map::insertImageLayer( ImageLayer* layer, unsigned int index )
         //Set options for the map from the layer
         layer->setDBOptions( _dbOptions.get() );
 
-        //propagate the cache to the layer:
-        if (_mapOptions.cachePolicy().isSet() )
-        {
-            layer->overrideCachePolicy( *_mapOptions.cachePolicy() );
-        }
-
         //Set the Cache for the MapLayer to our cache.
         layer->setCache( this->getCache() );
 
@@ -476,12 +471,6 @@ Map::addElevationLayer( ElevationLayer* layer )
     {
         //Set options for the map from the layer
         layer->setDBOptions( _dbOptions.get() );
-
-        //propagate the cache to the layer:
-        if ( _mapOptions.cachePolicy().isSet() )
-        {
-            layer->overrideCachePolicy( *_mapOptions.cachePolicy() );
-        }
 
         //Set the Cache for the MapLayer to our cache.
         layer->setCache( this->getCache() );
@@ -990,8 +979,6 @@ Map::calculateProfile()
 
 namespace
 {
-    typedef std::pair<ElevationLayer*, GeoHeightField> GeoHFPair;
-
     /**
      * Returns a heightfield corresponding to the input key by compositing
      * elevation data for a vector of elevation layers. The resulting 
@@ -1008,18 +995,20 @@ namespace
                      osg::ref_ptr<osg::HeightField>& out_result,
                      bool*                           out_isFallback,
                      ProgressCallback*               progress ) 
-    {
+    {        
         unsigned lowestLOD = key.getLevelOfDetail();
         bool hfInitialized = false;
 
         //Get a HeightField for each of the enabled layers
         GeoHeightFieldVector heightFields;
+        
+        //The number of fallback heightfields we have
+        int numFallbacks = 0;
 
-        unsigned int numValidHeightFields = 0;
-
+        //Default to being fallback data.
         if ( out_isFallback )
         {
-            *out_isFallback = false;
+            *out_isFallback = true;
         }
 
         // if the caller provided an "HAE map profile", he wants an HAE elevation grid even if
@@ -1060,8 +1049,8 @@ namespace
                         if ( hf_key.getLevelOfDetail() < lowestLOD )
                             lowestLOD = hf_key.getLevelOfDetail();
 
-                        if ( out_isFallback )
-                            *out_isFallback = true;
+                        //This HeightField is fallback data, so increment the count.
+                        numFallbacks++;                        
                     }
                 }
 
@@ -1072,18 +1061,24 @@ namespace
             }
         }
 
-        // If we didn't get any heightfields and weren't requested to fallback, just return NULL
-        if ( heightFields.size() == 0 )
+        //If any of the layers produced valid data then it's not considered a fallback
+        if ( out_isFallback )
         {
+            *out_isFallback = (numFallbacks == heightFields.size());
+            //OE_NOTICE << "Num fallbacks=" << numFallbacks << " numHeightFields=" << heightFields.size() << " is fallback " << *out_isFallback << std::endl;
+        }   
+        
+        if ( heightFields.size() == 0 )
+        {            
+            //If we got no heightfields but were requested to fallback, create an empty heightfield.
             if ( fallback )
             {
-                out_result = HeightFieldUtils::createReferenceHeightField( keyToUse.getExtent(), defElevSize, defElevSize );
-                if ( out_isFallback )
-                    *out_isFallback = true;
+                out_result = HeightFieldUtils::createReferenceHeightField( keyToUse.getExtent(), defElevSize, defElevSize );                
                 return true;
             }
             else
             {
+                //We weren't requested to fallback so just return.
                 return false;
             }
         }

@@ -26,6 +26,7 @@
 #include <osgEarth/NodeUtils>
 #include <osgEarth/ImageUtils>
 #include <osgEarth/DrapeableNode>
+#include <osgEarth/ShaderComposition>
 #include <osg/Geode>
 #include <osg/ShapeDrawable>
 #include <osg/Texture2D>
@@ -190,17 +191,24 @@ ImageOverlay::postCTOR()
 
     d->addChild( _transform );
 
+    // need a shader that supports one texture
+    VirtualProgram* vp = new VirtualProgram();
+    vp->setName( "imageoverlay");
+    vp->installDefaultColoringShaders(1);
+    //vp->installDefaultColoringAndLightingShaders(1);
+    //vp->setInheritShaders(false);
+    d->getOrCreateStateSet()->setAttributeAndModes( vp, 1 );
     
     init();    
     ADJUST_UPDATE_TRAV_COUNT( this, 1 );
 
-    getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+//    getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 }
 
 void
 ImageOverlay::init()
 {
-    OpenThreads::ScopedLock< OpenThreads::Mutex > lock(_mutex);    
+    OpenThreads::ScopedLock< OpenThreads::Mutex > lock(_mutex);
 
     double height = 0;
     osg::Geometry* geometry = new osg::Geometry();
@@ -273,9 +281,13 @@ ImageOverlay::init()
     (*texcoords)[3].set(0.0f,flip ? 0.0 : 1.0f);
     geometry->setTexCoordArray(0, texcoords);
 
-        
-    MeshSubdivider ms(osg::Matrixd::inverse(_transform->getMatrix()), _transform->getMatrix());
-    ms.run(*geometry, osg::DegreesToRadians(5.0), GEOINTERP_RHUMB_LINE);
+     
+    //Only run the MeshSubdivider on geocentric maps
+    if (_mapNode->getMap()->isGeocentric())
+    {
+        MeshSubdivider ms(osg::Matrixd::inverse(_transform->getMatrix()), _transform->getMatrix());
+        ms.run(*geometry, osg::DegreesToRadians(5.0), GEOINTERP_RHUMB_LINE);
+    }
 
     _geode->removeDrawables(0, _geode->getNumDrawables() );
 

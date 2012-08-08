@@ -86,7 +86,7 @@ namespace osgEarth { namespace Features
 
         virtual ~FeatureModelGraph();
 
-        void setupPaging();
+        osg::Node* setupPaging();
 
         osg::Group* buildLevel( 
             const FeatureLevel& level, 
@@ -133,6 +133,8 @@ namespace osgEarth { namespace Features
             const MapFrame* mapFrame, osg::Group* parent);
 
         void redraw();
+
+        void installShaderMains();
 
     private:
         FeatureModelSourceOptions        _options;

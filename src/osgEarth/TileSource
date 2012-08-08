@@ -25,6 +25,7 @@
 #include <osg/Version>
 
 #include <osgEarth/Common>
+#include <osgEarth/CachePolicy>
 #include <osgEarth/TileKey>
 #include <osgEarth/Profile>
 #include <osgEarth/MemCache>
@@ -175,6 +176,26 @@ namespace osgEarth
     class OSGEARTH_EXPORT TileSource : public virtual osg::Object
     {
     public:
+        /** Initialization status */
+        struct Status
+        {
+        public:
+            Status() { }
+            Status(const Status& rhs) : _msg(rhs._msg) { }
+            Status(const std::string& msg) : _msg(msg) { }
+            bool isOK() const { return _msg.empty(); }
+            bool isError() const { return !_msg.empty(); }
+            const std::string& message() const { return _msg; }
+            bool operator == (const Status& rhs) const { return _msg.compare(rhs._msg)==0; }
+            bool operator != (const Status& rhs) const { return _msg.compare(rhs._msg)!=0; }
+            static Status Error(const std::string& msg) { return Status(msg); }
+        private:
+            std::string _msg;
+        };
+
+        static Status STATUS_OK;
+
+    public:
         struct ImageOperation : public osg::Referenced {
             virtual void operator()( osg::ref_ptr<osg::Image>& in_out_image ) =0;
         };
@@ -185,6 +206,11 @@ namespace osgEarth
 
     public:        
         TileSource( const TileSourceOptions& options =TileSourceOptions() );
+
+        /**
+         * Gets the status of this tile source.
+         */
+        const Status& getStatus() const { return _status; }
 
         /**
          * Gets the number of pixels per tile for this TileSource.
@@ -264,11 +290,6 @@ namespace osgEarth
         virtual unsigned int getMinDataLevel() const;
 
         /**
-         * Returns true if data from this source can be cached to disk
-         */
-        virtual bool supportsPersistentCaching() const;
-
-        /**
          * Gets the preferred extension for this TileSource
          */
         virtual std::string getExtension() const {return "png";}
@@ -301,14 +322,36 @@ namespace osgEarth
         virtual bool isDynamic() const { return false; }
 
         /**
-         * Initializes the TileSource.
-         *
-         * This is the initialize() function called by the osgEarth engine. You can define it in 
-         * the implementation class to do initial startup of the TileSource.
+         * A hint as to what kind of caching policy would be appropriate to employ
+         * on this data source. By default, this is the default, which is to use a 
+         * cache if one is configured. But a TileSource can report that caching should
+         * not be used (for whatever reason) by returning CachePolicy::NO_CACHE.
+         */
+        virtual CachePolicy getCachePolicyHint() const { return CachePolicy::DEFAULT; }
+
+
+        /**
+         * Returns true if data from this source can be cached to disk
+         * @deprecated. Use getCachePolicyHint instead.
+         */
+        bool supportsPersistentCaching() const {
+            return getCachePolicyHint() != CachePolicy::NO_CACHE; }
+
+        /**
+         * Starts up the tile source.
+         */
+        const Status& startup( const osgDB::Options* dbOptions );
+
+        /**
+         * @deprecated
+         * Initializes the TileSource. This is the old initialize method; it will exists
+         * for backwards compatibility with older user-defined TileSource implementations.
+         * Consider updating to the new initialize() method above since it properly
+         * reports the results of the initialization.
          */
         virtual void initialize( 
-            const osgDB::Options* dbOptions       =0L,
-            const Profile*        overrideProfile =0L ) =0;
+            const osgDB::Options* dbOptions,
+            const Profile*        overrideProfile ) { }
 
         /** The options used to construct this tile source. */
         const TileSourceOptions& getOptions() const { return _options; }
@@ -325,6 +368,21 @@ namespace osgEarth
     protected:
 
         virtual ~TileSource();
+
+        /**
+         * Initializes the tile source (called by startup)
+         *
+         * The osgEarth engine calls this function to initialize a TileSource using an
+         * active osgDB::Options. The method returns a status code indicating whether
+         * intialization succeeded (in which case the owning layer will become enabled)
+         * or failed (in which case the owning layer will become disabled.
+         *
+         * This method replaces the now-deprecated initialize method below.
+         *
+         * The Subclass should override this to report a correct initialization status.
+         * The default implementation reports STATUS_OK (for compatibility).
+         */
+        virtual Status initialize( const osgDB::Options* dbOptions );
 
         /**
          * Creates an image for the given TileKey.
@@ -347,6 +405,12 @@ namespace osgEarth
          */
         void setProfile( const Profile* profile );
 
+        /**
+         * Sets the status of this tile source. Called by a subclass to
+         * set the status
+         */
+        void setStatus( Status status );
+
     private:
 
         osg::ref_ptr<const Profile> _profile;
@@ -355,6 +419,7 @@ namespace osgEarth
         friend class Map;
         friend class MapEngine;
         friend class TileSourceFactory;
+        friend class CompositeTileSource;
 
         osg::ref_ptr< TileBlacklist > _blacklist;
         std::string _blacklistFilename;
@@ -362,6 +427,7 @@ namespace osgEarth
         osg::ref_ptr<MemCache> _memCache;
 
         DataExtentList _dataExtents;
+        Status         _status;
     };
 
     

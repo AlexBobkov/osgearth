@@ -19,6 +19,7 @@
 #include <osgEarth/CompositeTileSource>
 #include <osgEarth/ImageUtils>
 #include <osgEarth/StringUtils>
+#include <osgEarth/Registry>
 #include <osgDB/FileNameUtils>
 
 #define LC "[CompositeTileSource] "
@@ -83,9 +84,29 @@ CompositeTileSourceOptions::fromConfig( const Config& conf )
 
 namespace
 {
-    // some helper types.
-    typedef std::pair< osg::ref_ptr<osg::Image>, float> ImageOpacityPair;
-    typedef std::vector<ImageOpacityPair> ImageMixVector;
+    struct ImageInfo
+    {
+        ImageInfo()
+        {
+            image = 0;
+            opacity = 0;
+            dataInExtents = false;
+        }
+
+        ImageInfo(osg::Image* image, float opacity, bool dataInExtents)
+        {
+            this->image = image;
+            this->opacity = opacity;
+            this->dataInExtents = dataInExtents;
+        }
+
+        bool dataInExtents;
+        float opacity;
+        osg::ref_ptr< osg::Image> image;
+    };
+
+    // some helper types.    
+    typedef std::vector<ImageInfo> ImageMixVector;
 
     // same op that occurs in ImageLayer.cpp ... maybe consilidate
     struct ImageLayerPreCacheOperation : public TileSource::ImageOperation
@@ -153,6 +174,11 @@ CompositeTileSource::createImage(const TileKey&    key,
         if ( progress && progress->isCanceled() )
             return 0L;
 
+        ImageInfo imageInfo;
+        imageInfo.dataInExtents = false;
+
+
+
         TileSource* source = i->_tileSourceInstance.get();
         if ( source )
         {
@@ -163,18 +189,22 @@ CompositeTileSource::createImage(const TileKey&    key,
             {
                 minLevel = i->_imageLayerOptions->minLevel().value();
             }
-            else if (i->_imageLayerOptions->minLevelResolution().isSet())
+            else if (i->_imageLayerOptions->minResolution().isSet())
             {
-                minLevel = source->getProfile()->getLevelOfDetailForHorizResolution( i->_imageLayerOptions->minLevelResolution().value(), source->getPixelsPerTile());            
+                minLevel = source->getProfile()->getLevelOfDetailForHorizResolution( 
+                    i->_imageLayerOptions->minResolution().value(), 
+                    source->getPixelsPerTile());
             }
 
             if (i->_imageLayerOptions->maxLevel().isSet())
             {
                 maxLevel = i->_imageLayerOptions->maxLevel().value();
             }
-            else if (i->_imageLayerOptions->maxLevelResolution().isSet())
+            else if (i->_imageLayerOptions->maxResolution().isSet())
             {
-                maxLevel = source->getProfile()->getLevelOfDetailForHorizResolution( i->_imageLayerOptions->maxLevelResolution().value(), source->getPixelsPerTile());            
+                maxLevel = source->getProfile()->getLevelOfDetailForHorizResolution( 
+                    i->_imageLayerOptions->maxResolution().value(), 
+                    source->getPixelsPerTile());
             }
 
             // check that this source is within the level bounds:
@@ -186,9 +216,12 @@ CompositeTileSource::createImage(const TileKey&    key,
 
             if ( !source->getBlacklist()->contains( key.getTileId() ) )
             {
-                //Only try to get data if the source actually has data
-                if ( source->hasData( key ) )
+                //Only try to get data if the source actually has data                
+                if (source->hasDataInExtent( key.getExtent() ) )
                 {
+                    //We have data within these extents
+                    imageInfo.dataInExtents = true;
+
                     osg::ref_ptr< ImageLayerPreCacheOperation > preCacheOp;
                     if ( i->_imageLayerOptions.isSet() )
                     {
@@ -196,25 +229,17 @@ CompositeTileSource::createImage(const TileKey&    key,
                         preCacheOp->_processor.init( i->_imageLayerOptions.value(), _dbOptions.get(), true );                        
                     }
 
-                    ImageOpacityPair imagePair(
-                        source->createImage( key, preCacheOp.get(), progress ),
-                        1.0f );
+                    imageInfo.image = source->createImage( key, preCacheOp.get(), progress );
+                    imageInfo.opacity = 1.0f;
 
                     //If the image is not valid and the progress was not cancelled, blacklist
-                    if (!imagePair.first.valid() && (!progress || !progress->isCanceled()))
+                    if (!imageInfo.image.valid() && (!progress || !progress->isCanceled()))
                     {
                         //Add the tile to the blacklist
                         OE_DEBUG << LC << "Adding tile " << key.str() << " to the blacklist" << std::endl;
                         source->getBlacklist()->add( key.getTileId() );
                     }
-
-                    if ( imagePair.first.valid() )
-                    {
-                        // check for opacity:
-                        imagePair.second = i->_imageLayerOptions.isSet() ? i->_imageLayerOptions->opacity().value() : 1.0f;
-
-                        images.push_back( imagePair );
-                    }
+                    imageInfo.opacity = i->_imageLayerOptions.isSet() ? i->_imageLayerOptions->opacity().value() : 1.0f;
                 }
                 else
                 {
@@ -226,31 +251,119 @@ CompositeTileSource::createImage(const TileKey&    key,
                 OE_DEBUG << LC << "Tile " << key.str() << " is blacklisted, not checking" << std::endl;
             }
         }
+
+        //Add the ImageInfo to the list
+        images.push_back( imageInfo );
+    }
+
+    unsigned numValidImages = 0;
+    osg::Vec2s textureSize;
+    for (unsigned int i = 0; i < images.size(); i++)
+    {
+        ImageInfo& info = images[i];
+        if (info.image.valid())
+        {
+            if (numValidImages == 0)
+            {
+                textureSize.set( info.image->s(), info.image->t());
+            }
+            numValidImages++;        
+        }
+    }
+
+    //Try to fallback on any empty images if we have some valid images but not valid images for ALL layers
+    if (numValidImages > 0 && numValidImages < images.size())
+    {        
+        for (unsigned int i = 0; i < images.size(); i++)
+        {
+            ImageInfo& info = images[i];
+            if (!info.image.valid() && info.dataInExtents)
+            {                                
+                TileKey parentKey = key.createParentKey();
+
+                TileSource* source = _options._components[i]._tileSourceInstance;
+                if (source)
+                {                 
+                    osg::ref_ptr< ImageLayerPreCacheOperation > preCacheOp;
+                    if ( _options._components[i]._imageLayerOptions.isSet() )
+                    {
+                        preCacheOp = new ImageLayerPreCacheOperation();
+                        preCacheOp->_processor.init( _options._components[i]._imageLayerOptions.value(), _dbOptions.get(), true );                        
+                    }                
+
+                    osg::ref_ptr< osg::Image > image;
+                    while (!image.valid() && parentKey.valid())
+                    {                        
+                        image = source->createImage( parentKey, preCacheOp.get(), progress );
+                        if (image.valid())
+                        {                     
+                            break;
+                        }
+                        parentKey = parentKey.createParentKey();
+                    }     
+
+                    if (image.valid())
+                    {
+                        //We got an image, but now we need to crop it to match the incoming key's extents
+                        GeoImage geoImage( image.get(), parentKey.getExtent());
+                        GeoImage cropped = geoImage.crop( key.getExtent(), true, textureSize.x(), textureSize.y());
+                        image = cropped.getImage();
+                    }
+
+                    info.image = image.get();
+                }
+            }
+        }
+    }
+
+    //Recompute the number of valid images
+    numValidImages = 0;
+    for (unsigned int i = 0; i < images.size(); i++)
+    {
+        ImageInfo& info = images[i];
+        if (info.image.valid()) numValidImages++;        
     }
 
     if ( progress && progress->isCanceled() )
     {
         return 0L;
     }
-    else if ( images.size() == 0 )
+    else if ( numValidImages == 0 )
     {
         return 0L;
     }
-    else if ( images.size() == 1 )
+    else if ( numValidImages == 1 )
     {
-        return images[0].first.release();
+        //We only have one valid image, so just return it and don't bother with compositing
+        for (unsigned int i = 0; i < images.size(); i++)
+        {
+            ImageInfo& info = images[i];
+            if (info.image.valid())
+                return info.image.release();
+        }
+        return 0L;
     }
     else
     {
-        osg::Image* result = new osg::Image( *images[0].first.get() );
-        for( unsigned int i=1; i<images.size(); ++i )
+        osg::Image* result = 0;
+        for (unsigned int i = 0; i < images.size(); i++)
         {
-            ImageOpacityPair& pair = images[i];
-            if ( pair.first.valid() )
+            ImageInfo& imageInfo = images[i];
+            if (!result)
             {
-                ImageUtils::mix( result, pair.first.get(), pair.second );
+                if (imageInfo.image.valid())
+                {
+                    result = new osg::Image( *imageInfo.image.get());
+                }
             }
-        }
+            else
+            {
+                if (imageInfo.image.valid())
+                {
+                    ImageUtils::mix( result, imageInfo.image, imageInfo.opacity );
+                }
+            }            
+        }        
         return result;
     }
 }
@@ -291,12 +404,12 @@ CompositeTileSource::add( TileSource* ts, const ImageLayerOptions& options )
     }
 }
 
-void
-CompositeTileSource::initialize(const osgDB::Options* dbOptions, 
-                                const Profile*        overrideProfile )
+TileSource::Status
+CompositeTileSource::initialize(const osgDB::Options* dbOptions)
 {
-    _dbOptions = dbOptions;
-    osg::ref_ptr<const Profile> profile = overrideProfile;
+    _dbOptions = Registry::instance()->cloneOrCreateOptions(dbOptions);
+
+    osg::ref_ptr<const Profile> profile = getProfile();
 
     for(CompositeTileSourceOptions::ComponentVector::iterator i = _options._components.begin();
         i != _options._components.end(); )
@@ -324,34 +437,46 @@ CompositeTileSource::initialize(const osgDB::Options* dbOptions,
             TileSource* source = i->_tileSourceInstance.get();
             if ( source )
             {
-                osg::ref_ptr<const Profile> localOverrideProfile = overrideProfile;
+                osg::ref_ptr<const Profile> localOverrideProfile = profile.get();
 
                 const TileSourceOptions& opt = source->getOptions();
                 if ( opt.profile().isSet() )
                     localOverrideProfile = Profile::create( opt.profile().value() );
 
-                source->initialize( dbOptions, localOverrideProfile.get() );
+                // initialize the component tile source:
+                source->setProfile( localOverrideProfile.get() );
+                TileSource::Status compStatus = source->initialize( _dbOptions.get() );
 
-                if ( !profile.valid() )
+                if ( compStatus == TileSource::STATUS_OK )
                 {
-                    // assume the profile of the first source to be the overall profile.
-                    profile = source->getProfile();
-                }
-                else if ( !profile->isEquivalentTo( source->getProfile() ) )
-                {
-                    // if sub-sources have different profiles, print a warning because this is
-                    // not supported!
-                    OE_WARN << LC << "Components with differing profiles are not supported. " 
-                        << "Visual anomalies may result." << std::endl;
-                }
+                    if ( !profile.valid() )
+                    {
+                        // assume the profile of the first source to be the overall profile.
+                        profile = source->getProfile();
+                    }
+                    else if ( !profile->isEquivalentTo( source->getProfile() ) )
+                    {
+                        // if sub-sources have different profiles, print a warning because this is
+                        // not supported!
+                        OE_WARN << LC << "Components with differing profiles are not supported. " 
+                            << "Visual anomalies may result." << std::endl;
+                    }
                 
-                _dynamic = _dynamic || source->isDynamic();
+                    _dynamic = _dynamic || source->isDynamic();
 
-                // gather extents
-                const DataExtentList& extents = source->getDataExtents();
-                for( DataExtentList::const_iterator j = extents.begin(); j != extents.end(); ++j )
+                    // gather extents
+                    const DataExtentList& extents = source->getDataExtents();
+                    for( DataExtentList::const_iterator j = extents.begin(); j != extents.end(); ++j )
+                    {
+                        getDataExtents().push_back( *j );
+                    }
+                }
+
+                else
                 {
-                    getDataExtents().push_back( *j );
+                    // if even one of the components fails to initialize, the entire
+                    // composite tile source is invalid.
+                    return Status::Error("At least one component is invalid");
                 }
             }
         }
@@ -359,9 +484,11 @@ CompositeTileSource::initialize(const osgDB::Options* dbOptions,
         ++i;
     }
 
+    // set the new profile that was derived from the components
     setProfile( profile.get() );
 
     _initialized = true;
+    return STATUS_OK;
 }
 
 //------------------------------------------------------------------------

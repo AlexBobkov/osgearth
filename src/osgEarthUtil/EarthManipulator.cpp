@@ -18,7 +18,6 @@
  */
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarth/MapNode>
-#include <osgEarth/Terrain>
 #include <osgEarth/NodeUtils>
 #include <osg/Quat>
 #include <osg/Notify>
@@ -187,7 +186,8 @@ static short s_actionOptionTypes[] = { 1, 1, 0, 0, 1, 1 }; // 0=bool, 1=double
 //------------------------------------------------------------------------
 
 EarthManipulator::Settings::Settings() :
-Revisioned<osg::Referenced>(),
+osg::Referenced         (),
+Revisioned              (),
 _single_axis_rotation   ( false ),
 _lock_azim_while_panning( true ),
 _mouse_sens             ( 1.0 ),
@@ -211,7 +211,8 @@ _camFrustOffsets        ( 0, 0 )
 }
 
 EarthManipulator::Settings::Settings( const EarthManipulator::Settings& rhs ) :
-Revisioned<osg::Referenced>(),
+osg::Referenced( rhs ),
+Revisioned     ( rhs ),
 _bindings( rhs._bindings ),
 _single_axis_rotation( rhs._single_axis_rotation ),
 _lock_azim_while_panning( rhs._lock_azim_while_panning ),
@@ -430,7 +431,16 @@ _settings               ( new Settings(*rhs.getSettings()) )
 
 EarthManipulator::~EarthManipulator()
 {
-    //NOP
+    osg::ref_ptr<osg::Node> safeNode = _node.get();
+    if (safeNode && _terrainCallback)
+    {
+        // find a map node.
+        MapNode* mapNode = MapNode::findMapNode( safeNode.get(), 0x01 );
+        if ( mapNode )
+        {             
+            mapNode->getTerrain()->removeTerrainCallback( _terrainCallback );
+        }
+    }    
 }
 
 void
@@ -556,7 +566,8 @@ EarthManipulator::established()
         MapNode* mapNode = MapNode::findMapNode( safeNode.get(), 0x01 );
         if ( mapNode )
         {
-            mapNode->getTerrain()->addTerrainCallback( new ManipTerrainCallback(this), this );
+            _terrainCallback = new ManipTerrainCallback( this );
+            mapNode->getTerrain()->addTerrainCallback( _terrainCallback );
         }
 
         // find a CSN node - if there is one, we want to attach the manip to that

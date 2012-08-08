@@ -18,7 +18,6 @@
 */
 #include <osgEarth/Draggers>
 #include <osgEarth/MapNode>
-#include <osgEarth/Terrain>
 #include <osgEarth/Pickers>
 
 #include <osg/AutoTransform>
@@ -34,11 +33,17 @@ using namespace osgEarth;
 
 struct ClampDraggerCallback : public TerrainCallback
 {
-    void onTileAdded( const TileKey& key, osg::Node* tile, TerrainCallbackContext& context )
-    {
-        Dragger* dragger = static_cast<Dragger*>(context.getClientData());
-        dragger->reclamp( key, tile, context.getTerrain() );
-    }
+    ClampDraggerCallback( Dragger* dragger ):
+_dragger( dragger )
+{
+}
+
+void onTileAdded( const TileKey& key, osg::Node* tile, TerrainCallbackContext& context )
+{
+    _dragger->reclamp( key, tile, context.getTerrain() );
+}
+
+Dragger* _dragger;
 };
 
 /**********************************************************/
@@ -50,15 +55,15 @@ _hovered(false)
 {
     setNumChildrenRequiringEventTraversal( 1 );
 
-    _mapNode->getTerrain()->addTerrainCallback( new ClampDraggerCallback(), this ); 
+    _autoClampCallback = new ClampDraggerCallback( this );
 }
 
 Dragger::~Dragger()
 {
     osg::ref_ptr< MapNode > mapNode = _mapNode;
-    if (mapNode.valid())
+    if (mapNode.valid() && _autoClampCallback.valid())
     {
-        mapNode->getTerrain()->removeTerrainCallbacksWithClientData(this);
+        mapNode->getTerrain()->removeTerrainCallback( _autoClampCallback.get() );
     }
 }
 
@@ -84,13 +89,16 @@ void Dragger::setPosition( const GeoPoint& position, bool fireEvents)
         _position = position;
         updateTransform();
 
-        if (fireEvents)
-        {
-            for( PositionChangedCallbackList::iterator i = _callbacks.begin(); i != _callbacks.end(); i++ )
-            {
-                i->get()->onPositionChanged(this, _position);
-            }
-        }
+        if ( fireEvents )
+            firePositionChanged();
+    }
+}
+
+void Dragger::firePositionChanged()
+{
+    for( PositionChangedCallbackList::iterator i = _callbacks.begin(); i != _callbacks.end(); i++ )
+    {
+        i->get()->onPositionChanged(this, _position);
     }
 }
 
@@ -180,7 +188,11 @@ bool Dragger::handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& 
     }
     else if (ea.getEventType() == osgGA::GUIEventAdapter::RELEASE)
     {
-        _dragging = false;
+        if ( _dragging )
+        {
+            _dragging = false;
+            firePositionChanged();
+        }
         aa.requestRedraw();
     }
     else if (ea.getEventType() == osgGA::GUIEventAdapter::DRAG)
