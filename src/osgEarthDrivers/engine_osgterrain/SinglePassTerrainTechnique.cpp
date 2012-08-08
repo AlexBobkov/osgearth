@@ -887,6 +887,7 @@ SinglePassTerrainTechnique::createGeometry( const TileFrame& tilef )
 	surface->setVertexAttribArray(5, heights);
 	surface->setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
 	surface->setVertexAttribNormalize(5, false);
+	surface->setName("height");
 
     // allocate and assign color
     osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array(1);

@@ -187,6 +187,11 @@ namespace osgEarth
          * the normal operation. You can set this to "false" to "reset" the VP.
          */
         void setInheritShaders( bool value );
+                        
+        /** Add an attribute location binding. */
+        void addBindAttribLocation( const std::string& name, GLuint index );
+        
+        const osg::Program::AttribBindingList& getAttribBindingList() const { return _attribBindingList; }
 
     public: 
         /**
@@ -260,13 +265,15 @@ namespace osgEarth
         ProgramMap                   _programCache;
         ShaderMap                    _shaderMap;
         unsigned int                 _mask;
-
+        
         ShaderComp::FunctionLocationMap _functions;
         ShaderComp::FunctionLocationMap _accumulatedFunctions;
 
         Threading::Mutex _functionsMutex;
         bool _inherit;
         mutable Threading::ReadWriteMutex _programCacheMutex;
+        
+        osg::Program::AttribBindingList _attribBindingList;
 
         bool hasLocalFunctions() const;
         void refreshAccumulatedFunctions( const osg::State& state );

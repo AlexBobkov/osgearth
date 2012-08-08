@@ -666,6 +666,11 @@ VirtualProgram::apply( osg::State& state ) const
     }
 }
 
+void VirtualProgram::addBindAttribLocation( const std::string& name, GLuint index )
+{
+    _attribBindingList[name] = index;
+}
+
 void
 VirtualProgram::getFunctions( FunctionLocationMap& out ) const
 {

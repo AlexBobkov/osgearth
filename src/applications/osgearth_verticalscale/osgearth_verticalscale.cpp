@@ -50,7 +50,7 @@ void applyVerticalScale(osg::Node* node)
 	osg::Uniform* verticalScaleUniform = new osg::Uniform("verticalScale", 10);
 	node->getOrCreateStateSet()->addUniform(verticalScaleUniform);
 
-	vp->addBindAttribLocation("height", 5);    
+	vp->addBindAttribLocation("height", 5);
 }
 
 int
