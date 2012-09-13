@@ -93,6 +93,7 @@ TerrainLayerOptions::getConfig( bool isolate ) const
     conf.updateIfSet   ( "cacheid",      _cacheId );
     conf.updateIfSet   ( "cache_format", _cacheFormat );
     conf.updateObjIfSet( "cache_policy", _cachePolicy );
+    conf.updateObjIfSet( "proxy",        _proxySettings );
 
     // Merge the TileSource options
     if ( !isolate && driver().isSet() )
@@ -122,6 +123,7 @@ TerrainLayerOptions::fromConfig( const Config& conf )
     conf.getIfSet   ( "cacheid",      _cacheId );
     conf.getIfSet   ( "cache_format", _cacheFormat );
     conf.getObjIfSet( "cache_policy", _cachePolicy );
+    conf.getObjIfSet( "proxy",        _proxySettings );
 
     // legacy support:
     if ( conf.value<bool>( "cache_only", false ) == true )
@@ -179,21 +181,19 @@ TerrainLayer::~TerrainLayer()
 void
 TerrainLayer::init()
 {
-    _tileSourceInitialized = false;
-    _tileSize              = 256;
-    _dbOptions             = Registry::instance()->cloneOrCreateOptions();
+    _tileSourceInitAttempted = false;
+    _tileSourceInitFailed    = false;
+    _tileSize                = 256;
+    _dbOptions               = Registry::instance()->cloneOrCreateOptions();
     
-    if ( _runtimeOptions->cachePolicy().isSet() )
-    {
-        _runtimeOptions->cachePolicy()->apply( _dbOptions.get() );
-    }
+    initializeCachePolicy( _dbOptions.get() );
+    storeProxySettings( _dbOptions.get() );
 }
 
 void
 TerrainLayer::setCache( Cache* cache )
 {
-    if (_cache.get() != cache && 
-        _runtimeOptions->cachePolicy()->usage() != CachePolicy::USAGE_NO_CACHE )
+    if (_cache.get() != cache && getCachePolicy() != CachePolicy::NO_CACHE )
     {
         _cache = cache;
 
@@ -261,13 +261,16 @@ TerrainLayer::setTargetProfileHint( const Profile* profile )
 TileSource* 
 TerrainLayer::getTileSource() const
 {
-    if ((_tileSource.valid() && !_tileSourceInitialized) ||
+    if ( _tileSourceInitFailed )
+        return 0L;
+
+    if ((_tileSource.valid() && !_tileSourceInitAttempted) ||
         (!_tileSource.valid() && !isCacheOnly()))
     {
         OpenThreads::ScopedLock< OpenThreads::Mutex > lock(const_cast<TerrainLayer*>(this)->_initTileSourceMutex );
         
         // double-check pattern
-        if ((_tileSource.valid() && !_tileSourceInitialized) ||
+        if ((_tileSource.valid() && !_tileSourceInitAttempted) ||
             (!_tileSource.valid() && !isCacheOnly()))
         {
             // Initialize the tile source once.
@@ -299,13 +302,13 @@ TerrainLayer::getProfile() const
     // NB: in cache-only mode, there IS NO layer profile.
     if ( !_profile.valid() && !isCacheOnly() )
     {
-        if ( !_tileSourceInitialized )
+        if ( !_tileSourceInitAttempted )
         {
             // Call getTileSource to make sure the TileSource is initialized
             getTileSource();
         }
 
-        if ( _tileSource.valid() && !_profile.valid() )
+        if ( _tileSource.valid() && !_profile.valid() && !_tileSourceInitFailed )
         {
             const_cast<TerrainLayer*>(this)->_profile = _tileSource->getProfile();
 
@@ -364,8 +367,7 @@ TerrainLayer::isDynamic() const
 CacheBin*
 TerrainLayer::getCacheBin( const Profile* profile )
 {
-    if (_runtimeOptions->cachePolicy().isSet() &&
-        _runtimeOptions->cachePolicy()->usage() == CachePolicy::USAGE_NO_CACHE )
+    if ( getCachePolicy() == CachePolicy::NO_CACHE )
     {
         return 0L;
     }
@@ -380,8 +382,7 @@ CacheBin*
 TerrainLayer::getCacheBin( const Profile* profile, const std::string& binId )
 {
     // in no-cache mode, there are no cache bins.
-    if (_runtimeOptions->cachePolicy().isSet() &&
-        _runtimeOptions->cachePolicy()->usage() == CachePolicy::USAGE_NO_CACHE )
+    if ( getCachePolicy() == CachePolicy::NO_CACHE )
     {
         return 0L;
     }
@@ -428,7 +429,7 @@ TerrainLayer::getCacheBin( const Profile* profile, const std::string& binId )
                     {
                         OE_WARN << LC << "Cache has an incompatible driver or profile... disabling"
                             << std::endl;
-                        _runtimeOptions->cachePolicy()->usage() = CachePolicy::USAGE_NO_CACHE;
+                        setCachePolicy( CachePolicy::NO_CACHE );
                         return 0L;
                     }
                 }   
@@ -486,9 +487,8 @@ TerrainLayer::getCacheBin( const Profile* profile, const std::string& binId )
         else
         {
             // bin creation failed, so disable caching for this layer.
-            _runtimeOptions->cachePolicy()->usage() = CachePolicy::USAGE_NO_CACHE;
-            OE_WARN << LC << "Failed to create a cacheing bin for layer; cache disabled." 
-                << std::endl;
+            setCachePolicy( CachePolicy::NO_CACHE );
+            OE_WARN << LC << "Failed to create a caching bin for layer; cache disabled." << std::endl;
         }
 
         return newBin.get(); // not release()
@@ -536,7 +536,8 @@ TerrainLayer::initTileSource()
         if ( !_dbOptions.valid() )
         {
             _dbOptions = Registry::instance()->cloneOrCreateOptions();
-            if ( _cache.valid() ) _cache->store( _dbOptions.get() );
+            if ( _cache.valid() ) _cache->apply( _dbOptions.get() );
+            _initOptions.cachePolicy()->apply( _dbOptions.get() );
             URIContext( _runtimeOptions->referrer() ).apply( _dbOptions.get() );
         }
 
@@ -547,8 +548,12 @@ TerrainLayer::initTileSource()
                 << _tileSource->getProfile()->toString() << std::endl;
         }
 
-        // Intialize the tile source.
-        const TileSource::Status& status = _tileSource->startup( _dbOptions.get() );
+        // Start up the tile source (if it hasn't already been started)
+        TileSource::Status status = _tileSource->getStatus();
+        if ( status != TileSource::STATUS_OK )
+        {
+            status = _tileSource->startup( _dbOptions.get() );
+        }
 
         if ( status == TileSource::STATUS_OK )
         {
@@ -558,6 +563,8 @@ TerrainLayer::initTileSource()
         {
             OE_WARN << LC << "Could not initialize driver" << std::endl;
             _tileSource = NULL;
+            _tileSourceInitFailed = true;
+            _runtimeOptions->enabled() = true;
         }
     }
 
@@ -572,16 +579,17 @@ TerrainLayer::initTileSource()
     else if (_cache.valid())
     {
         OE_NOTICE << LC << "Could not initialize TileSource " << _name << ", but a cache exists. Setting layer to cache-only mode." << std::endl;
-        _runtimeOptions->cachePolicy()->usage() = CachePolicy::USAGE_CACHE_ONLY;
+        setCachePolicy( CachePolicy::CACHE_ONLY );
     }
 
-    _tileSourceInitialized = true;
+    _tileSourceInitAttempted = true;
 }
 
 bool
 TerrainLayer::isKeyValid(const TileKey& key) const
 {
-    if (!key.valid()) return false;
+    if (!key.valid() || _tileSourceInitFailed) 
+        return false;
 
     // Check to see if an explicity max LOD is set. Do NOT compare against the minLevel,
     // because we still need to create empty tiles until we get to the data. The ImageLayer
@@ -634,9 +642,48 @@ TerrainLayer::setVisible( bool value )
 void
 TerrainLayer::setDBOptions( const osgDB::Options* dbOptions )
 {
-    _dbOptions = osg::clone( dbOptions );
-
-    // override the cache policy if there's one set locally.
-    if ( _runtimeOptions->cachePolicy().isSet() )
-        _runtimeOptions->cachePolicy()->apply( _dbOptions.get() );
+    _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );
+    initializeCachePolicy( dbOptions );    
+    storeProxySettings( _dbOptions );
 }
+
+void
+TerrainLayer::initializeCachePolicy( const osgDB::Options* options )
+{
+    // establish this layer's cache policy.
+    if ( _initOptions.cachePolicy().isSet() )
+    {
+        // if this layer defines its own CP, use it.
+        setCachePolicy( *_initOptions.cachePolicy() );
+    }
+    else
+    {
+        // see if the new DBOptions has one set; if so, inherit that:
+        optional<CachePolicy> incomingCP;
+        if ( CachePolicy::fromOptions(options, incomingCP) )
+        {
+            setCachePolicy( incomingCP.get() );
+        }
+        else if ( Registry::instance()->defaultCachePolicy().isSet() )
+        {
+            // not set, no try to inherit from the registry:
+            setCachePolicy( Registry::instance()->defaultCachePolicy().value() );
+        }
+        else
+        {
+            // not found anywhere; set to the default.
+            setCachePolicy( CachePolicy::DEFAULT );
+        }
+    }
+}
+
+void
+TerrainLayer::storeProxySettings(osgDB::Options* opt)
+{
+    //Store the proxy settings in the options structure.
+    if (_initOptions.proxySettings().isSet())
+    {        
+        _initOptions.proxySettings().get().apply( opt );
+    }
+}
+

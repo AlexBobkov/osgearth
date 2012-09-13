@@ -45,6 +45,7 @@ using namespace osgEarth;
 
 namespace
 {
+#if 0
     /**
      * Creates a polytope that minimally bounds a bounding sphere
      * in world space.
@@ -201,6 +202,7 @@ namespace
         std::stack<osg::Polytope> _polytopeStack;
         std::stack<osg::Matrixd>  _local2worldStack, _world2localStack;
     };
+#endif
 
 
     /**
@@ -444,24 +446,32 @@ OverlayDecorator::initSubgraphShaders( PerViewData& pvd )
 
     // vertex shader - subgraph
     std::string vertexSource = Stringify()
-        << "#version 110 \n"
+        << "#version " << GLSL_VERSION_STR << "\n"
+#ifdef OSG_GLES2_AVAILABLE
+        << "precision mediump float;\n"
+#endif
         << "uniform mat4 osgearth_overlay_TexGenMatrix; \n"
         << "uniform mat4 osg_ViewMatrixInverse; \n"
+        << "varying vec4 osg_TexCoord[" << Registry::capabilities().getMaxGPUTextureCoordSets() << "]; \n"
 
         << "void osgearth_overlay_vertex(void) \n"
         << "{ \n"
-        << "    gl_TexCoord["<< *_textureUnit << "] = osgearth_overlay_TexGenMatrix * osg_ViewMatrixInverse * gl_ModelViewMatrix * gl_Vertex; \n"
+        << "    osg_TexCoord["<< *_textureUnit << "] = osgearth_overlay_TexGenMatrix * osg_ViewMatrixInverse * gl_ModelViewMatrix * gl_Vertex; \n"
         << "} \n";
 
     vp->setFunction( "osgearth_overlay_vertex", vertexSource, ShaderComp::LOCATION_VERTEX_POST_LIGHTING );
 
     // fragment shader - subgraph
     std::string fragmentSource = Stringify()
-        << "#version 110 \n"
+        << "#version " << GLSL_VERSION_STR << "\n"
+#ifdef OSG_GLES2_AVAILABLE
+        << "precision mediump float;\n"
+#endif
         << "uniform sampler2D osgearth_overlay_ProjTex; \n"
+        << "varying vec4 osg_TexCoord[" << Registry::capabilities().getMaxGPUTextureCoordSets() << "]; \n"
         << "void osgearth_overlay_fragment( inout vec4 color ) \n"
         << "{ \n"
-        << "    vec2 texCoord = gl_TexCoord["<< *_textureUnit << "].xy / gl_TexCoord["<< *_textureUnit << "].q; \n"
+        << "    vec2 texCoord = osg_TexCoord["<< *_textureUnit << "].xy / osg_TexCoord["<< *_textureUnit << "].q; \n"
         << "    vec4 texel = texture2D(osgearth_overlay_ProjTex, texCoord); \n"  
         << "    color = vec4( mix( color.rgb, texel.rgb, texel.a ), color.a); \n"
         << "} \n";
@@ -776,18 +786,37 @@ OverlayDecorator::cull( osgUtil::CullVisitor* cv, OverlayDecorator::PerViewData&
     osg::BoundingSphere visibleOverlayBS;
     osg::Polytope frustumPT;
     frustumPH.getPolytope( frustumPT );
+
+    // get a bounds of the overlay graph as a whole, and convert that to a
+    // bounding box. We can probably do better with a ComputeBoundsVisitor but it
+    // will be slower.
+    visibleOverlayBS = _overlayGraph->getBound();
+    osg::BoundingBox visibleOverlayBBox;
+    visibleOverlayBBox.expandBy( visibleOverlayBS );
+
+    // intersect that bound with the camera frustum:
+    osg::Polytope visibleOverlayPT;
+    visibleOverlayPT.setToBoundingBox( visibleOverlayBBox );
+    osgShadow::ConvexPolyhedron visiblePH( frustumPH );
+    visiblePH.cut( visibleOverlayPT );
+
+#if 0
+    // This method does not work. Like with larged paged feature sets.
+
     ComputeBoundsWithinFrustum cbwp( frustumPH, _srs.get(), _isGeocentric, visibleOverlayBS );
     _overlayGraph->accept( cbwp );
 
     // convert the visible geometry bounding sphere into a world-space polytope:
     osg::Polytope visiblePT;
-    computeWorldBoundingPolytope( visibleOverlayBS, _srs.get(), _isGeocentric, visiblePT );
+    osgShadow::ConvexPolyhedron visiblePH( frustumPH );
 
     // this intersects the viewing frustum with the subgraph's bounding box, basically giving us
     // a "minimal" polyhedron containing all potentially visible geometry. (It can't be truly 
     // minimal without clipping at the geometry level, but that would probably be too expensive.)
-    osgShadow::ConvexPolyhedron visiblePH( frustumPH );
+
+    computeWorldBoundingPolytope( visibleOverlayBS, _srs.get(), _isGeocentric, visiblePT );
     visiblePH.cut( visiblePT );
+#endif
 
     // calculate the extents for our orthographic RTT camera (clamping it to the
     // visible horizon)

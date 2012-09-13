@@ -189,6 +189,7 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
                                        osg::Geometry*          base,
                                        osg::Geometry*          outline,
                                        const osg::Vec4&        wallColor,
+                                       const osg::Vec4&        wallBaseColor,
                                        const osg::Vec4&        roofColor,
                                        const osg::Vec4&        outlineColor,
                                        const SkinResource*     wallSkin,
@@ -237,10 +238,11 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
         walls->setTexCoordArray( 0, wallTexcoords );
     }
 
+    osg::Vec4Array* colors = 0L;
     if ( useColor )
     {
         // per-vertex colors are necessary if we are going to use the MeshConsolidator -gw
-        osg::Vec4Array* colors = new osg::Vec4Array();
+        colors = new osg::Vec4Array();
         colors->reserve( numWallVerts );
         colors->assign( numWallVerts, wallColor );
         walls->setColorArray( colors );
@@ -414,6 +416,7 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
         if (div == 0) div = 1; //Prevent divide by zero
         tex_height_m_adj = maxHeight / div;
 
+        //osg::DrawElementsUShort* idx = new osg::DrawElementsUShort( GL_TRIANGLES );
         osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_TRIANGLES );
 
         for( Geometry::const_iterator m = part->begin(); m != part->end(); ++m )
@@ -472,15 +475,25 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 
 
             if ( base )
+            {
                 (*baseVerts)[baseVertPtr] = basePt;
+            }
+
             if ( roof )
+            {
                 (*roofVerts)[roofVertPtr] = roofPt;
+            }
 
             baseVertPtr++;
             roofVertPtr++;
 
             (*verts)[p] = roofPt;
             (*verts)[p+1] = basePt;
+
+            if ( useColor )
+            {
+                (*colors)[p+1] = wallBaseColor;
+            }
 
             if ( outline )
             {
@@ -587,6 +600,7 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
             unsigned len = baseVertPtr - basePartPtr;
 
             GLenum roofLineMode = isPolygon ? GL_LINE_LOOP : GL_LINE_STRIP;
+            //osg::DrawElementsUShort* roofLine = new osg::DrawElementsUShort( roofLineMode );
             osg::DrawElementsUInt* roofLine = new osg::DrawElementsUInt( roofLineMode );
             roofLine->reserveElements( len );
             for( unsigned i=0; i<len; ++i )
@@ -598,7 +612,8 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
             unsigned step = std::max( 1u, 
                 _outlineSymbol->tessellation().isSet() ? *_outlineSymbol->tessellation() : 1u );
 
-            osg::DrawElementsUShort* wallLines = new osg::DrawElementsUShort( GL_LINES );
+            //osg::DrawElementsUShort* wallLines = new osg::DrawElementsUShort( GL_LINES );
+            osg::DrawElementsUInt* wallLines = new osg::DrawElementsUInt( GL_LINES );
             wallLines->reserve( len*2 );
             for( unsigned i=0; i<len; i+=step )
             {
@@ -748,11 +763,19 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
             }
 
             // calculate the colors:
-            osg::Vec4f wallColor(1,1,1,1), roofColor(1,1,1,1), outlineColor(1,1,1,1);
+            osg::Vec4f wallColor(1,1,1,1), wallBaseColor(1,1,1,1), roofColor(1,1,1,1), outlineColor(1,1,1,1);
 
             if ( _wallPolygonSymbol.valid() )
             {
                 wallColor = _wallPolygonSymbol->fill()->color();
+                if ( _extrusionSymbol->wallGradientPercentage().isSet() )
+                {
+                    wallBaseColor = Color(wallColor).brightness( 1.0 - *_extrusionSymbol->wallGradientPercentage() );
+                }
+                else
+                {
+                    wallBaseColor = wallColor;
+                }
             }
             if ( _roofPolygonSymbol.valid() )
             {
@@ -768,7 +791,7 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                     part, height, offset, 
                     *_extrusionSymbol->flatten(),
                     walls.get(), rooflines.get(), baselines.get(), outlines.get(),
-                    wallColor, roofColor, outlineColor,
+                    wallColor, wallBaseColor, roofColor, outlineColor,
                     wallSkin, roofSkin,
                     context ) )
             {      

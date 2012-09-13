@@ -15,6 +15,7 @@ USE_GRAPICSWINDOW_IMPLEMENTATION(IOS)
 
 //osg plugins
 
+USE_OSGPLUGIN(OpenFlight)
 USE_OSGPLUGIN(obj)
 USE_OSGPLUGIN(ive)
 
@@ -34,6 +35,7 @@ USE_OSGPLUGIN(trans)
 
 //image files
 #ifndef ANDROID
+USE_OSGPLUGIN(tiff)
 USE_OSGPLUGIN(imageio)
 #else
 USE_OSGPLUGIN(png)
@@ -61,6 +63,7 @@ USE_OSGPLUGIN(osgearth_model_feature_stencil)
 USE_OSGPLUGIN(osgearth_vdatum_egm2008)
 USE_OSGPLUGIN(osgearth_model_simple)
 USE_OSGPLUGIN(osgearth_engine_osgterrain)
+//USE_OSGPLUGIN(osgearth_engine_quadtree)
 USE_OSGPLUGIN(osgearth_vdatum_egm96)
 USE_OSGPLUGIN(osgearth_ocean_surface)
 USE_OSGPLUGIN(osgearth_debug)

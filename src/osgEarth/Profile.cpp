@@ -124,11 +124,18 @@ Profile::create(const std::string& srsInitString,
                 unsigned int numTilesWideAtLod0,
                 unsigned int numTilesHighAtLod0)
 {
-    return new Profile(
-        SpatialReference::create( srsInitString, vsrsInitString ),
-        xmin, ymin, xmax, ymax,
-        numTilesWideAtLod0,
-        numTilesHighAtLod0 );
+    osg::ref_ptr<osgEarth::SpatialReference> srs = SpatialReference::create( srsInitString, vsrsInitString );
+    if (srs.valid() == true)
+    {
+        return new Profile(
+            srs.get(),
+            xmin, ymin, xmax, ymax,
+            numTilesWideAtLod0,
+            numTilesHighAtLod0 );
+    }
+
+    OE_WARN << LC << "Failed to create profile; unrecognized SRS: \"" << srsInitString << "\"" << std::endl;
+    return NULL;
 }
 
 const Profile*
@@ -137,11 +144,17 @@ Profile::create(const SpatialReference* srs,
                 unsigned int numTilesWideAtLod0,
                 unsigned int numTilesHighAtLod0)
 {
-    return new Profile(
-        srs,
-        xmin, ymin, xmax, ymax,
-        numTilesWideAtLod0,
-        numTilesHighAtLod0 );
+    if (srs != NULL)
+    {
+        return new Profile(
+            srs,
+            xmin, ymin, xmax, ymax,
+            numTilesWideAtLod0,
+            numTilesHighAtLod0 );
+    }
+
+    OE_WARN << LC << "Failed to create profile; null SRS" << std::endl;
+    return 0L;
 }
 
 const Profile*
@@ -151,12 +164,18 @@ Profile::create(const SpatialReference* srs,
                 unsigned int numTilesWideAtLod0,
                 unsigned int numTilesHighAtLod0)
 {
-    return new Profile(
-        srs,
-        xmin, ymin, xmax, ymax,
-        geoxmin, geoymin, geoxmax, geoymax,
-        numTilesWideAtLod0,
-        numTilesHighAtLod0 );
+    if ( srs )
+    {
+        return new Profile(
+            srs,
+            xmin, ymin, xmax, ymax,
+            geoxmin, geoymin, geoxmax, geoymax,
+            numTilesWideAtLod0,
+            numTilesHighAtLod0 );
+    }
+    
+    OE_WARN << LC << "Failed to create profile; null SRS" << std::endl;
+    return 0L;
 }
 
 const Profile*
@@ -699,11 +718,13 @@ Profile::getEquivalentLOD( const Profile* profile, unsigned int lod ) const
 
     double targetWidth = rhsWidth, targetHeight = rhsHeight;
 
-    if ( !profile->getSRS()->isHorizEquivalentTo(profile->getSRS()) )
+    if ( !profile->getSRS()->isHorizEquivalentTo(getSRS()) )
     {
         targetWidth = profile->getSRS()->transformUnits( rhsWidth, getSRS() );
         targetHeight = profile->getSRS()->transformUnits( rhsHeight, getSRS() );
     }
+
+
 
 
 

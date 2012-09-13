@@ -17,69 +17,128 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
+/**
+ * This sample shows how to use osgEarth's built-in elevation data attributes
+ * to adjust the terrain's vertical scale in real time.
+ */
 #include <osg/Notify>
 #include <osgViewer/Viewer>
+#include <osgEarth/ShaderComposition>
+#include <osgEarth/Registry>
+#include <osgEarth/TerrainEngineNode>
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthUtil/ExampleResources>
-#include <osgEarth/ShaderComposition>
+#include <osgEarthUtil/Controls>
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
 
-static char s_verticalScaleVertShader[] =
-"uniform mat4 osg_ViewMatrix; \n"
-"uniform mat4 osg_ViewMatrixInverse; \n"
-"uniform int verticalScale; \n"
-" \n"
-"attribute float height; \n"
-" \n"
-"void apply_vertical_scale() \n"
-"{ \n"
-"	vec3 v3Pos = (osg_ViewMatrixInverse * gl_ModelViewMatrix * gl_Vertex).xyz; \n"
-"	v3Pos += normalize(v3Pos) * height * (verticalScale - 1); \n"
-"	gl_Position = gl_ProjectionMatrix * osg_ViewMatrix * vec4(v3Pos, 1.0); \n"
-"} \n";
+//-------------------------------------------------------------------------
 
-void applyVerticalScale(osg::Node* node)
+// In the vertex shader, we use a vertex attribute that's genreated by the
+// terrain engine. In this example it's called "osgearth_elevData" but you 
+// can give it any name you want, as long as it's bound to the proper
+// attribute location (see code). 
+//
+// The attribute contains a vec4 which holds the unit "up vector" in 
+// indexes[0,1,2] and the original raw height in index[3].
+//
+// Here, we use the vertical scale uniform to move the vertex up or down
+// along its up vector, thereby scaling the terrain's elevation. The code
+// is intentionally verbose for clarity.
+
+const char* vertexShader =
+    "attribute vec4  osgearth_elevData; \n"
+    "uniform   float verticalScale;     \n"
+
+    "void applyVerticalScale() \n"
+    "{ \n"
+    "    vec3  upVector = osgearth_elevData.xyz;                     \n"
+    "    float elev     = osgearth_elevData.w;                       \n"
+    "    vec3  offset   = upVector * elev * (verticalScale - 1.0);   \n"
+    "    vec4  vertex   = gl_Vertex + vec4(offset/gl_Vertex.w, 0.0); \n"
+    "    gl_Position    = gl_ModelViewProjectionMatrix * vertex;     \n"
+    "} \n";
+
+
+// Build the stateset necessary for scaling elevation data.
+osg::StateSet* createStateSet()
 {
-    osgEarth::VirtualProgram* vp = new osgEarth::VirtualProgram();
-	node->getOrCreateStateSet()->setAttributeAndModes( vp, osg::StateAttribute::ON );
+    osg::StateSet* stateSet = new osg::StateSet();
 
-	vp->setFunction("apply_vertical_scale", s_verticalScaleVertShader, osgEarth::ShaderComp::LOCATION_VERTEX_POST_LIGHTING);
+    // Install the shaders. We also bind osgEarth's elevation data attribute, which the 
+    // terrain engine automatically generates at the specified location.
+    VirtualProgram* vp = new VirtualProgram();
+    vp->installDefaultColoringAndLightingShaders();
+    vp->setFunction( "applyVerticalScale", vertexShader, ShaderComp::LOCATION_VERTEX_PRE_LIGHTING );
+    vp->addBindAttribLocation( "osgearth_elevData", osg::Drawable::ATTRIBUTE_6 );
+    stateSet->setAttributeAndModes( vp, osg::StateAttribute::ON );
 
-	osg::Uniform* verticalScaleUniform = new osg::Uniform("verticalScale", 10);
-	node->getOrCreateStateSet()->addUniform(verticalScaleUniform);
+    return stateSet;
+};
 
-	vp->addBindAttribLocation("height", 5);
+
+// Build a slider to adjust the vertical scale
+osgEarth::Util::Controls::Control* createUI( osg::Uniform* scaler )
+{
+    using namespace osgEarth::Util::Controls;
+
+    struct ApplyVerticalScale : public ControlEventHandler {
+        osg::Uniform* _u;
+        ApplyVerticalScale(osg::Uniform* u) : _u(u) { }
+        void onValueChanged(Control*, float value) {
+            _u->set( value );
+        }
+    };
+
+    HBox* hbox = new HBox();
+    hbox->setChildVertAlign( Control::ALIGN_CENTER );
+    hbox->addControl( new LabelControl("Scale:") );
+    HSliderControl* slider = hbox->addControl( new HSliderControl(0.0, 5.0, 1.0, new ApplyVerticalScale(scaler)) );
+    slider->setHorizFill( true, 200 );
+    hbox->addControl( new LabelControl(slider) );
+
+    return hbox;
 }
 
-int
-main(int argc, char** argv)
+
+int main(int argc, char** argv)
 {
-    osg::ArgumentParser arguments(&argc,argv);
+    osg::ArgumentParser arguments(&argc, argv);
 
     // create a viewer:
     osgViewer::Viewer viewer(arguments);
 
+    // Tell osgEarth to use the "quadtree" terrain driver by default.
+    // Elevation data attribution is only available in this driver!
+    osgEarth::Registry::instance()->setDefaultTerrainEngineDriverName( "quadtree" );
+
     // install our default manipulator (do this before calling load)
     viewer.setCameraManipulator( new EarthManipulator() );
-	
+
+    osg::Uniform* verticalScale = new osg::Uniform(osg::Uniform::FLOAT, "verticalScale");
+    verticalScale->set( 1.0f );
+    osgEarth::Util::Controls::Control* ui = createUI( verticalScale );
+
     // load an earth file, and support all or our example command-line options
-    // and earth file <external> tags
-    osg::Node* node = MapNodeHelper().load( arguments, &viewer );
+    // and earth file <external> tags    
+    osg::Node* node = MapNodeHelper().load( arguments, &viewer, ui );
     if ( node )
     {
-		applyVerticalScale(node);		
+        MapNode* mapNode = MapNode::findMapNode(node);
+        if ( !mapNode )
+            return -1;
 
-        viewer.setSceneData( node );
+        if ( mapNode->getMap()->getNumElevationLayers() == 0 )
+            OE_WARN << "No elevation layers! Scaling will be very boring." << std::endl;
 
-        // configure the near/far so we don't clip things that are up close
-        viewer.getCamera()->setNearFarRatio(0.00002);
+        // install the shader program and install our controller uniform:
+        osg::Group* root = new osg::Group();
+        root->setStateSet( createStateSet() );
+        root->getStateSet()->addUniform( verticalScale );
+        root->addChild( node );
 
-        // osgEarth benefits from pre-compilation of GL objects in the pager. In newer versions of
-        // OSG, this activates OSG's IncrementalCompileOpeartion in order to avoid frame breaks.
-        viewer.getDatabasePager()->setDoPreCompile( true );
-
+        viewer.setSceneData( root );
         viewer.run();
     }
     else
@@ -88,4 +147,6 @@ main(int argc, char** argv)
             << "\nUsage: " << argv[0] << " file.earth" << std::endl
             << MapNodeHelper().usage() << std::endl;
     }
+
+    return 0;
 }
