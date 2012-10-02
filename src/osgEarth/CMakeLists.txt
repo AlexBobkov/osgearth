@@ -65,6 +65,10 @@ SET(LIB_PUBLIC_HEADERS
     Locators
     LocalTangentPlane
     Map
+    MapCallback
+    MapFrame
+    MapInfo
+    MapModelChange
     MapNode
     MapNodeObserver
     MapNodeOptions
@@ -85,7 +89,8 @@ SET(LIB_PUBLIC_HEADERS
     Random
     Registry
     Revisioning
-    ShaderComposition
+    ShaderFactory
+    ShaderGenerator
     ShaderUtils
     SparseTexture2DArray
     SpatialReference
@@ -108,6 +113,7 @@ SET(LIB_PUBLIC_HEADERS
     Version
     VerticalDatum
     Viewpoint
+    VirtualProgram
     XmlUtils
 )
 
@@ -168,6 +174,9 @@ ADD_LIBRARY(${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
     Locators.cpp
     LocalTangentPlane.cpp
     Map.cpp
+    MapCallback.cpp
+    MapFrame.cpp
+    MapInfo.cpp
     MapNode.cpp
     MapNodeOptions.cpp
     MapOptions.cpp
@@ -186,7 +195,9 @@ ADD_LIBRARY(${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
     Progress.cpp
     Random.cpp
     Registry.cpp
-    ShaderComposition.cpp
+    Revisioning.cpp
+    ShaderFactory.cpp
+    ShaderGenerator.cpp
     ShaderUtils.cpp
     SparseTexture2DArray.cpp
     SpatialReference.cpp
@@ -209,6 +220,7 @@ ADD_LIBRARY(${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
     Version.cpp
     VerticalDatum.cpp
     Viewpoint.cpp
+    VirtualProgram.cpp
     XmlUtils.cpp
 )
 
