@@ -81,7 +81,7 @@ AnnotationEventCallback::operator()( osg::Node* node, osg::NodeVisitor* nv )
                     {
                         fireEvent( &AnnotationEventHandler::onClick, anno );
                         fired.insert( anno );
-                        //break;
+                        break;
                     }
                 }
             }
