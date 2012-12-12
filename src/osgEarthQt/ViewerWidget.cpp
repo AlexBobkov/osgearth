@@ -48,7 +48,9 @@ ViewerWidget::ViewerWidget(osg::Node* scene)
     installFrameTimer();
 }
 
-ViewerWidget::ViewerWidget(osgViewer::ViewerBase* viewer) :
+ViewerWidget::ViewerWidget(osgViewer::ViewerBase* viewer):
+osgQt::GLWidget(QGLFormat(QGL::DoubleBuffer | QGL::DepthBuffer | QGL::Rgba
+| QGL::StencilBuffer | QGL::AlphaChannel | QGL::StereoBuffers)),
 _viewer( viewer )
 {
     if ( !_viewer.valid() )
