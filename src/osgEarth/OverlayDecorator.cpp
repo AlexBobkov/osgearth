@@ -25,6 +25,7 @@
 #include <osgEarth/Capabilities>
 #include <osg/Texture2D>
 #include <osg/TexEnv>
+#include <osg/Depth>
 #include <osg/BlendFunc>
 #include <osg/ShapeDrawable>
 #include <osg/AutoTransform>
@@ -210,7 +211,9 @@ OverlayDecorator::initializePerViewData( PerViewData& pvd )
 
     osg::StateSet* rttStateSet = pvd._rttCamera->getOrCreateStateSet();
 
-    rttStateSet->setMode( GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED );
+    rttStateSet->setMode( GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED );	
+	rttStateSet->setAttributeAndModes(new osg::ColorMask(true, true, true, true), osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+	rttStateSet->setAttributeAndModes(new osg::Depth, osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
 
     // install a new default shader program that replaces anything from above.
     if ( _useShaders )
@@ -831,6 +834,8 @@ OverlayDecorator::getPerViewData(osg::Camera* key)
     }    
 }
 
+static std::map<osg::Camera*, long> _frameMap;
+
 void
 OverlayDecorator::traverse( osg::NodeVisitor& nv )
 {
@@ -846,21 +851,37 @@ OverlayDecorator::traverse( osg::NodeVisitor& nv )
             {
                 PerViewData& pvd = getPerViewData( camera );
 
-                if (checkNeedsUpdate(pvd))
-                {
-                    updateRTTCamera(pvd);
-                }
+				long frameNum = _frameMap[camera];
 
-                if ( pvd._texGen.valid() )
-                {
-                    // FFP path only
-                    cv->getCurrentRenderBin()->getStage()->addPositionedTextureAttribute(
-                        *_textureUnit, cv->getModelViewMatrix(), pvd._texGen.get() );
-                }
+				if (nv.getFrameStamp()->getFrameNumber() != frameNum)
+				{
+					_frameMap[camera] = nv.getFrameStamp()->getFrameNumber();
 
-                cull( cv, pvd );
+					if (checkNeedsUpdate(pvd))
+					{
+						updateRTTCamera(pvd);
+					}
 
-                pvd._rttCamera->accept( nv );
+					if ( pvd._texGen.valid() )
+					{
+						// FFP path only
+						cv->getCurrentRenderBin()->getStage()->addPositionedTextureAttribute(
+							*_textureUnit, cv->getModelViewMatrix(), pvd._texGen.get() );
+					}
+
+					cull( cv, pvd );
+
+					pvd._rttCamera->accept( nv );
+				}
+				else
+				{
+					//osg::Group::traverse(nv);
+
+					cv->pushStateSet( pvd._subgraphStateSet.get() );
+					osg::Group::traverse(nv);
+					cv->popStateSet();
+
+				}
             }
             else
             {
