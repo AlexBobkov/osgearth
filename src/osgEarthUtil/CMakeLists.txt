@@ -14,8 +14,8 @@ SET(HEADERS_ROOT
     Common
     Controls
     ClampCallback
+    DataScanner
     EarthManipulator
-    ElevationManager
     ExampleResources
     Export
     FeatureManipTool
@@ -29,7 +29,6 @@ SET(HEADERS_ROOT
     MGRSFormatter
     MGRSGraticule
     MouseCoordsTool
-    ObjectPlacer
     ObjectLocator
     PolyhedralLineOfSight
     RadialLineOfSight
@@ -40,6 +39,7 @@ SET(HEADERS_ROOT
     TFS
     TFSPackager
     TMS
+    TMSBackFiller
     TMSPackager
     UTMGraticule
     WFS
@@ -57,8 +57,8 @@ SET(SOURCES_ROOT
     AutoClipPlaneHandler.cpp
     ClampCallback.cpp
     Controls.cpp
-    EarthManipulator.cpp
-    ElevationManager.cpp
+    DataScanner.cpp
+    EarthManipulator.cpp    
     ExampleResources.cpp
     FeatureManipTool.cpp
     FeatureQueryTool.cpp
@@ -69,7 +69,6 @@ SET(SOURCES_ROOT
     MGRSFormatter.cpp
     MGRSGraticule.cpp
     MouseCoordsTool.cpp
-    ObjectPlacer.cpp
     ObjectLocator.cpp
     PolyhedralLineOfSight.cpp
     RadialLineOfSight.cpp
@@ -79,6 +78,7 @@ SET(SOURCES_ROOT
     TFS.cpp
     TFSPackager.cpp
     TMS.cpp
+    TMSBackFiller.cpp
     TMSPackager.cpp
     UTMGraticule.cpp
     WFS.cpp
@@ -96,6 +96,7 @@ SET(HEADERS_COLORFILTER
     BrightnessContrastColorFilter
     CMYKColorFilter
     GammaColorFilter
+    GLSLColorFilter
     HSLColorFilter
     RGBColorFilter
     ChromaKeyColorFilter
@@ -107,6 +108,7 @@ SET(SOURCES_COLORFILTER
     BrightnessContrastColorFilter.cpp
     CMYKColorFilter.cpp
     GammaColorFilter.cpp
+    GLSLColorFilter.cpp
     HSLColorFilter.cpp
     RGBColorFilter.cpp
     ChromaKeyColorFilter.cpp

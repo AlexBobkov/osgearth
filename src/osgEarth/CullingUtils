@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -21,9 +21,11 @@
 #define OSGEARTH_CULLING_UTILS_H 1
 
 #include <osgEarth/Common>
+#include <osgEarth/optional>
 #include <osg/NodeCallback>
 #include <osg/ClusterCullingCallback>
 #include <osg/CoordinateSystemNode>
+#include <osg/MatrixTransform>
 #include <osg/Vec3d>
 #include <osg/Vec3>
 #include <osgUtil/CullVisitor>
@@ -92,10 +94,22 @@ namespace osgEarth
         }
     };
 
+    /**
+     * Culler that tests whether the line-of-sight vector between the camera
+     * and the node intersects the Ellipsoid, and if so, culls the node.
+     */
+    struct OSGEARTH_EXPORT CullNodeByEllipsoid : public osg::NodeCallback {
+        double _minRadius;
+        CullNodeByEllipsoid( const osg::EllipsoidModel* model );
+        void operator()(osg::Node* node, osg::NodeVisitor* nv);
+    };
+
     struct OSGEARTH_EXPORT CullNodeByHorizon : public osg::NodeCallback {
+        osg::observer_ptr<osg::MatrixTransform> _xform;
         osg::Vec3d _world;
         double _r, _r2;
         CullNodeByHorizon( const osg::Vec3d& world, const osg::EllipsoidModel* model );
+        CullNodeByHorizon( osg::MatrixTransform* xform, const osg::EllipsoidModel* model );
         void operator()(osg::Node* node, osg::NodeVisitor* nv );
     };
 
@@ -140,7 +154,63 @@ namespace osgEarth
         double _maxRange2;
     };
 
+    /**
+     * Culling utilities.
+     */
+    struct OSGEARTH_EXPORT Culling
+    {
+        static osgUtil::CullVisitor* asCullVisitor(osg::NodeVisitor* nv);
+        static osgUtil::CullVisitor* asCullVisitor(osg::NodeVisitor& nv) { return asCullVisitor(&nv); }
 
+        /** General user data to calculate once and pass down with a CullVisitor. */
+        struct CullUserData : public osg::Referenced
+        {
+            optional<double> _cameraAltitude;
+        };
+
+        static CullUserData* getCullUserData(osgUtil::CullVisitor* cv) {
+            return cv ? dynamic_cast<CullUserData*>(cv->getUserData()) : 0L; }
+    };
+
+    /**
+     * Node Visitor that proxies the CullVisitor but uses a separate
+     * frustum for bounds-culling.
+     */
+    class ProxyCullVisitor : public osg::NodeVisitor, public osg::CullStack
+    {
+    private:
+        osgUtil::CullVisitor* _cv;
+        osg::Polytope         _proxyFrustum;
+        osg::Polytope         _proxyProjFrustum;
+        osg::Matrix           _proxyModelViewMatrix;
+        osg::Matrix           _proxyProjMatrix;
+
+    public:
+        ProxyCullVisitor( osgUtil::CullVisitor* cv, const osg::Matrix& proj, const osg::Matrix& view );
+
+        // access to the underlying cull visitor.
+        osgUtil::CullVisitor* getCullVisitor() { return _cv; }
+
+    public: // proxy functions:
+        osg::Vec3 getEyePoint() const;
+        osg::Vec3 getViewPoint() const;
+        float getDistanceToEyePoint(const osg::Vec3& pos, bool useLODScale) const;
+        float getDistanceFromEyePoint(const osg::Vec3& pos, bool useLODScale) const;
+        float getDistanceToViewPoint(const osg::Vec3& pos, bool useLODScale) const;
+
+    protected: // custom culling functions:
+
+        bool isCulledByProxyFrustum(osg::Node& node);
+        bool isCulledByProxyFrustum(const osg::BoundingBox& bbox);
+        
+        osgUtil::CullVisitor::value_type distance(const osg::Vec3& coord,const osg::Matrix& matrix);
+
+        void handle_cull_callbacks_and_traverse(osg::Node& node);
+
+        void apply(osg::Node& node);
+        void apply(osg::Transform& node);
+        void apply(osg::Geode& node);
+    };
 }
 
 #endif // OSGEARTH_CULLING_UTILS_H

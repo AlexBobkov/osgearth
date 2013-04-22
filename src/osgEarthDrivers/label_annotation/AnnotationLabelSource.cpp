@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -63,18 +63,24 @@ public:
 
         osg::Group* group = new osg::Group();
 
+#if 0
+        //TODO: revise; decluttering is enabled by the LabelNode now -gw
+
         // check for decluttering
         if ( text->declutter().isSet() )
         {
             Decluttering::setEnabled( group->getOrCreateStateSet(), *text->declutter() );
         }
+#endif
 
+#if 0
         if ( text->priority().isSet() )
         {
             DeclutteringOptions dco = Decluttering::getOptions();
             dco.sortByPriority() = text->priority().isSet();
             Decluttering::setOptions( dco );
-        }    
+        }
+#endif
         
         StringExpression  contentExpr ( *text->content() );
         NumericExpression priorityExpr( *text->priority() );

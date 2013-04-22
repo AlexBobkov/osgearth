@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -115,7 +115,8 @@ _supportsDepthPackedStencilBuffer( false ),
 _supportsOcclusionQuery ( false ),
 _supportsDrawInstanced  ( false ),
 _supportsUniformBufferObjects( false ),
-_maxUniformBlockSize    ( 0 )
+_maxUniformBlockSize    ( 0 ),
+_preferDLforStaticGeom  ( true )
 {
     // little hack to force the osgViewer library to link so we can create a graphics context
     osgViewerGetVersion();
@@ -228,15 +229,19 @@ _maxUniformBlockSize    ( 0 )
         OE_INFO << LC << "  depth-packed stencil = " << SAYBOOL(_supportsDepthPackedStencilBuffer) << std::endl;
 
         _supportsOcclusionQuery = osg::isGLExtensionSupported( id, "GL_ARB_occlusion_query" );
-        OE_INFO << LC << "  occulsion query = " << SAYBOOL(_supportsOcclusionQuery) << std::endl;
+        OE_INFO << LC << "  occlusion query = " << SAYBOOL(_supportsOcclusionQuery) << std::endl;
 
-        _supportsDrawInstanced = osg::isGLExtensionOrVersionSupported( id, "GL_EXT_draw_instanced", 3.1f );
+        _supportsDrawInstanced = 
+            _supportsGLSL &&
+            osg::isGLExtensionOrVersionSupported( id, "GL_EXT_draw_instanced", 3.1f );
         OE_INFO << LC << "  draw instanced = " << SAYBOOL(_supportsDrawInstanced) << std::endl;
 
         glGetIntegerv( GL_MAX_UNIFORM_BLOCK_SIZE, &_maxUniformBlockSize );
         OE_INFO << LC << "  max uniform block size = " << _maxUniformBlockSize << std::endl;
 
-        _supportsUniformBufferObjects = osg::isGLExtensionOrVersionSupported( id, "GL_ARB_uniform_buffer_object", 2.0f );
+        _supportsUniformBufferObjects = 
+            _supportsGLSL &&
+            osg::isGLExtensionOrVersionSupported( id, "GL_ARB_uniform_buffer_object", 2.0f );
         OE_INFO << LC << "  uniform buffer objects = " << SAYBOOL(_supportsUniformBufferObjects) << std::endl;
 
         if ( _supportsUniformBufferObjects && _maxUniformBlockSize == 0 )
@@ -248,6 +253,33 @@ _maxUniformBlockSize    ( 0 )
 
         //_supportsTexture2DLod = osg::isGLExtensionSupported( id, "GL_ARB_shader_texture_lod" );
         //OE_INFO << LC << "  texture2DLod = " << SAYBOOL(_supportsTexture2DLod) << std::endl;
+
+        // NVIDIA:
+        bool isNVIDIA = _vendor.find("NVIDIA") == 0;
+
+        // NVIDIA has h/w acceleration of some kind for display lists, supposedly.
+        // In any case they do benchmark much faster in osgEarth for static geom.
+        // BUT unfortunately, they dont' seem to work too well with shaders. Colors
+        // change randomly, etc. Might work OK for textured geometry but not for 
+        // untextured. TODO: investigate.
+#if 1
+        _preferDLforStaticGeom = false;
+        if ( ::getenv("OSGEARTH_TRY_DISPLAY_LISTS") )
+        {
+            _preferDLforStaticGeom = true;
+        }
+#else
+        if ( ::getenv("OSGEARTH_ALWAYS_USE_VBOS") )
+        {
+            _preferDLforStaticGeom = false;
+        }
+        else
+        {
+            _preferDLforStaticGeom = isNVIDIA;
+        }
+#endif
+
+        OE_INFO << LC << "  prefer DL for static geom = " << SAYBOOL(_preferDLforStaticGeom) << std::endl;
 
         // ATI workarounds:
         bool isATI = _vendor.find("ATI ") == 0;

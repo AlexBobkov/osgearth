@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,9 +20,31 @@
 #include <osgEarth/VirtualProgram>
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
-#include <osgUtil/CullVisitor>
+#include <osgEarth/CullingUtils>
 
 using namespace osgEarth;
+
+//--------------------------------------------------------------------
+
+FadeOptions::FadeOptions(const Config& conf) :
+_duration      ( 1.0f ),
+_maxRange      ( FLT_MAX ),
+_attenDist     ( 1000.0f )
+{
+    conf.getIfSet( "duration",             _duration );
+    conf.getIfSet( "max_range",            _maxRange );
+    conf.getIfSet( "attenuation_distance", _attenDist );
+}
+
+Config
+FadeOptions::getConfig() const
+{
+    Config conf("fading");
+    conf.addIfSet( "duration",             _duration );
+    conf.addIfSet( "max_range",            _maxRange );
+    conf.addIfSet( "attenuation_distance", _attenDist );
+    return conf;
+}
 
 //--------------------------------------------------------------------
 
@@ -33,15 +55,19 @@ namespace
 #ifdef OSG_GLES2_AVAILABLE
         "precision mediump float; \n"
 #endif
-        "uniform float oe_FadeEffect_duration; \n"
-        "uniform float oe_FadeEffect_startTime; \n"
+        "uniform float oe_fadeeffect_duration; \n"
+        "uniform float oe_fadeeffect_startTime; \n"
+        "uniform float oe_fadeeffect_maxRange; \n"
+        "uniform float oe_fadeeffect_attenDist; \n"
         "uniform float osg_FrameTime; \n"
-        "varying float oe_FadeEffect_opacity; \n"
 
-        "void oe_vertFadeEffect() \n"
+        "varying float oe_fadeeffect_opacity; \n"
+
+        "void oe_vertFadeEffect(inout vec4 VertexView) \n"
         "{ \n"
-        "    float t = (osg_FrameTime-oe_FadeEffect_startTime)/oe_FadeEffect_duration; \n"
-        "    oe_FadeEffect_opacity = clamp( t, 0.0, 1.0 ); \n"
+        "    float t = (osg_FrameTime-oe_fadeeffect_startTime)/oe_fadeeffect_duration; \n"
+        "    float r = (oe_fadeeffect_maxRange - (-VertexView.z))/oe_fadeeffect_attenDist; \n"
+        "    oe_fadeeffect_opacity = clamp(t, 0.0, 1.0) * clamp(r, 0.0, 1.0); \n"
         "} \n";
 
     char* FadeEffectFragmentShader = 
@@ -49,11 +75,11 @@ namespace
 #ifdef OSG_GLES2_AVAILABLE
         "precision mediump float; \n"
 #endif
-        "varying float oe_FadeEffect_opacity; \n"
+        "varying float oe_fadeeffect_opacity; \n"
 
         "void oe_fragFadeEffect( inout vec4 color ) \n"
         "{ \n"
-        "    color.a *= oe_FadeEffect_opacity; \n"
+        "    color.a *= oe_fadeeffect_opacity; \n"
         "} \n";
 }
 
@@ -62,7 +88,7 @@ namespace
 osg::Uniform*
 FadeEffect::createStartTimeUniform()
 {
-    return new osg::Uniform( osg::Uniform::FLOAT, "oe_FadeEffect_startTime" );
+    return new osg::Uniform( osg::Uniform::FLOAT, "oe_fadeeffect_startTime" );
 }
 
 FadeEffect::FadeEffect()
@@ -73,15 +99,20 @@ FadeEffect::FadeEffect()
     {
         VirtualProgram* vp = new VirtualProgram();
 
-        vp->setFunction( "oe_vertFadeEffect", FadeEffectVertexShader,   ShaderComp::LOCATION_VERTEX_POST_LIGHTING );
-        vp->setFunction( "oe_fragFadeEffect", FadeEffectFragmentShader, ShaderComp::LOCATION_FRAGMENT_PRE_LIGHTING );
+        vp->setFunction( "oe_vertFadeEffect", FadeEffectVertexShader,   ShaderComp::LOCATION_VERTEX_VIEW );
+        vp->setFunction( "oe_fragFadeEffect", FadeEffectFragmentShader, ShaderComp::LOCATION_FRAGMENT_COLORING );
 
         ss->setAttributeAndModes( vp, osg::StateAttribute::ON );
-    }
 
-    _fadeDuration = new osg::Uniform( osg::Uniform::FLOAT, "oe_FadeEffect_duration" );
-    _fadeDuration->set( 1.0f );
-    ss->addUniform( _fadeDuration );
+        _fadeDuration = ss->getOrCreateUniform( "oe_fadeeffect_duration", osg::Uniform::FLOAT );
+        _fadeDuration->set( 1.0f );
+
+        _maxRange = ss->getOrCreateUniform( "oe_fadeeffect_maxRange", osg::Uniform::FLOAT );
+        _maxRange->set( FLT_MAX );
+
+        _attenDist = ss->getOrCreateUniform( "oe_fadeeffect_attenDist", osg::Uniform::FLOAT );
+        _attenDist->set( 0.0f );
+    }
 
     ss->setMode( GL_BLEND, 1 );
 }
@@ -97,6 +128,34 @@ FadeEffect::getFadeDuration() const
 {
     float value = 0.0f;
     _fadeDuration->get(value);
+    return value;
+}
+
+void
+FadeEffect::setMaxRange(float value)
+{
+    _maxRange->set( value );
+}
+
+float
+FadeEffect::getMaxRange() const
+{
+    float value = 0.0f;
+    _maxRange->get( value );
+    return value;
+}
+
+void
+FadeEffect::setAttenuationDistance(float value)
+{
+    _attenDist->set( value );
+}
+
+float
+FadeEffect::getAttenuationDistance() const
+{
+    float value = 0.0f;
+    _attenDist->get( value );
     return value;
 }
 
@@ -134,7 +193,7 @@ _maxFadeExtent ( 0.0f )
         vp->setFunction(
             "oe_fragFadeLOD",
             FadeLODFragmentShader,
-            ShaderComp::LOCATION_FRAGMENT_PRE_LIGHTING );
+            ShaderComp::LOCATION_FRAGMENT_COLORING );
 
         osg::StateSet* ss = getOrCreateStateSet();
 
@@ -148,7 +207,7 @@ FadeLOD::traverse( osg::NodeVisitor& nv )
 {
     if ( nv.getVisitorType() == nv.CULL_VISITOR )
     {
-        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(&nv);
+        osgUtil::CullVisitor* cv = Culling::asCullVisitor(nv);
         PerViewData& data = _perViewData.get(cv);
         if ( !data._opacity.valid() )
         {

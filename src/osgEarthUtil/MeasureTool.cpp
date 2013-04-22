@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -87,6 +87,7 @@ MeasureToolHandler::rebuild()
 
     AltitudeSymbol* alt = new AltitudeSymbol();
     alt->clamping() = AltitudeSymbol::CLAMP_TO_TERRAIN;
+    alt->technique() = AltitudeSymbol::TECHNIQUE_GPU;
 
     // Define the path feature:
     _feature = new Feature(new LineString(), getMapNode()->getMapSRS());

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -151,6 +151,11 @@ namespace osgEarth
         static osg::Image* createEmptyImage();
 
         /**
+         * Creates a one-pixel image.
+         */
+        static osg::Image* createOnePixelImage(const osg::Vec4& color);
+
+        /**
          * Tests an image to see whether it's "empty", i.e. completely transparent,
          * within an alpha threshold.
          */
@@ -204,9 +209,34 @@ namespace osgEarth
         static bool hasAlphaChannel( const osg::Image* image );
 
         /**
+         * Checks whether an image has transparency; i.e. whether
+         * there are any pixels with an alpha component whole value
+         * falls below the specified threshold.
+         */
+        static bool hasTransparency(const osg::Image* image, float alphaThreshold =1.0f);
+
+        /**
+         * Finds pixels with alpha less than [maxAlpha] and sets their color
+         * to match that or neighboring non-alpha pixels. This facilitates multipass
+         * blending or abutting tiles by overlapping them slightly. Specify "maxAlpha"
+         * as the maximum value to consider when searching for fully-transparent pixels.
+         */
+        static void featherAlphaRegions(osg::Image* image, float maxAlpha =0.0f);
+
+        /**
+         * Converts an image (in place) to premultiplied-alpha format.
+         */
+        static void convertToPremultipliedAlpha(osg::Image* image);
+
+        /**
          * Checks whether the given image is compressed
          */
         static bool isCompressed( const osg::Image* image );
+
+        /**
+         * Generated a bump map image for the input image
+         */
+        static osg::Image* createBumpMap( const osg::Image* input );
 
         /**
          * Reads color data out of an image, regardles of its internal pixel format.
@@ -290,7 +320,7 @@ namespace osgEarth
             /**
              * Traverse an image, and call this method on the superclass:
              *
-             *   bool operator(const osg::Vec4& pixel);
+             *   bool operator(osg::Vec4& pixel);
              *
              * If that method returns true, write the value back at the same location.
              */

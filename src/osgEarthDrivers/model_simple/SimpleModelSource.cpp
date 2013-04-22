@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -84,7 +84,7 @@ public:
     }
 
     // override
-    osg::Node* createNode(const Map* map, const osgDB::Options* dbOptions, ProgressCallback* progress )
+    osg::Node* createNodeImplementation(const Map* map, const osgDB::Options* dbOptions, ProgressCallback* progress )
     {
         osg::ref_ptr<osg::Node> result;
 

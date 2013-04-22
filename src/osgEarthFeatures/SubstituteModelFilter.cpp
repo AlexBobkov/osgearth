@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -75,9 +75,9 @@ SubstituteModelFilter::findResource(const URI&            uri,
 {
     // find the corresponding marker in the cache
     InstanceResource* instance = 0L;
-    InstanceCache::Record rec = _instanceCache.get( uri );
 
-    if ( rec.valid() )
+    InstanceCache::Record rec;
+    if ( _instanceCache.get(uri, rec) )
     {
         // found it in the cache:
         instance = rec.value();
@@ -233,7 +233,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
                         // could take a shortcut and just use the current extent's local2world matrix for this,
                         // but if the tile is big enough the up vectors won't be quite right.
                         osg::Matrixd rotation;
-                        ECEF::transformAndGetRotationMatrix( point, context.profile()->getSRS(), point, rotation );
+                        ECEF::transformAndGetRotationMatrix( point, context.profile()->getSRS(), point, targetSRS, rotation );
                         mat = rotationMatrix * rotation * scaleMatrix * osg::Matrixd::translate( point ) * _world2local;
                     }
                     else
@@ -249,7 +249,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
 
                     if ( context.featureIndex() && !_useDrawInstanced )
                     {
-                        context.featureIndex()->tagNode( xform, input->getFID() );
+                        context.featureIndex()->tagNode( xform, input );
                     }
 
                     // name the feature if necessary
@@ -381,7 +381,7 @@ struct ClusterVisitor : public osg::NodeVisitor
                         if ( _makeECEF )
                         {
                             osg::Matrixd rotation;
-                            ECEF::transformAndGetRotationMatrix( point, _srs, point, rotation );
+                            ECEF::transformAndGetRotationMatrix( point, _srs, point, _targetSRS, rotation );
                             mat = rotationMatrix * rotation * scaleMatrix * osg::Matrixd::translate(point) * _f2n->world2local();
                         }
                         else
@@ -406,7 +406,7 @@ struct ClusterVisitor : public osg::NodeVisitor
                             geode.addDrawable( newDrawable.get() );
 
                             if ( _cx.featureIndex() )
-                                _cx.featureIndex()->tagPrimitiveSets( newDrawable.get(), feature->getFID() );
+                                _cx.featureIndex()->tagPrimitiveSets( newDrawable.get(), feature );
                         }
                     }
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2012 Pelican Mapping
+* Copyright 2008-2013 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -48,9 +48,7 @@ ViewerWidget::ViewerWidget(osg::Node* scene)
     installFrameTimer();
 }
 
-ViewerWidget::ViewerWidget(osgViewer::ViewerBase* viewer):
-osgQt::GLWidget(QGLFormat(QGL::DoubleBuffer | QGL::DepthBuffer | QGL::Rgba
-| QGL::StencilBuffer | QGL::AlphaChannel | QGL::StereoBuffers)),
+ViewerWidget::ViewerWidget(osgViewer::ViewerBase* viewer) :
 _viewer( viewer )
 {
     if ( !_viewer.valid() )
@@ -91,11 +89,21 @@ ViewerWidget::~ViewerWidget()
 }
 
 
+void
+ViewerWidget::setTimerInterval(int milliseconds)
+{
+    if ( _timer.interval() != milliseconds )
+    {
+        _timer.start( milliseconds );
+    }
+}
+
+
 void ViewerWidget::installFrameTimer()
 {    
     // start the frame timer.
     connect(&_timer, SIGNAL(timeout()), this, SLOT(update()));
-    _timer.start(15);
+    _timer.start(20);
 }
 
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -36,6 +36,7 @@
 #include <osgText/Text>
 #include <osgUtil/Tessellator>
 #include <osgUtil/Optimizer>
+#include <osgUtil/SmoothingVisitor>
 #include <osgDB/WriteFile>
 #include <osg/Version>
 
@@ -175,9 +176,9 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 
             // resolve the color:
             osg::Vec4f primaryColor =
-                polySymbol ? polySymbol->fill()->color() :
-                lineSymbol ? lineSymbol->stroke()->color() :
-                pointSymbol ? pointSymbol->fill()->color() :
+                polySymbol ? osg::Vec4f(polySymbol->fill()->color()) :
+                lineSymbol ? osg::Vec4f(lineSymbol->stroke()->color()) :
+                pointSymbol ? osg::Vec4f(pointSymbol->fill()->color()) :
                 osg::Vec4f(1,1,1,1);
             
             osg::Geometry* osgGeom = new osg::Geometry();
@@ -264,7 +265,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 
             // record the geometry's primitive set(s) in the index:
             if ( context.featureIndex() )
-                context.featureIndex()->tagPrimitiveSets( osgGeom, input->getFID() );
+                context.featureIndex()->tagPrimitiveSets( osgGeom, input );
 
             // build secondary geometry, if necessary (polygon outlines)
             if ( renderType == Geometry::TYPE_POLYGON && lineSymbol )
@@ -313,13 +314,17 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 
                 applyLineAndPointSymbology( outline->getOrCreateStateSet(), lineSymbol, 0L );
 
+                // make normals before adding an outline
+                osgUtil::SmoothingVisitor sv;
+                _geode->accept( sv );
+
                 _geode->addDrawable( outline );
 
                 //_featureNode->addDrawable( outline, input->getFID() );
 
                 // Mark each primitive set with its feature ID.
                 if ( context.featureIndex() )
-                    context.featureIndex()->tagPrimitiveSets( outline, input->getFID() );
+                    context.featureIndex()->tagPrimitiveSets( outline, input );
             }
 
         }
@@ -374,6 +379,30 @@ BuildGeometryFilter::buildPolygon(Geometry*               ring,
         //tess.setBoundaryOnly( true );
         tess.retessellatePolygons( *osgGeom );
     }
+
+    //// Normal computation.
+    //// Not completely correct, but better than no normals at all. TODO: update this
+    //// to generate a proper normal vector in ECEF mode.
+    ////
+    //// We cannot accurately rely on triangles from the tessellation, since we could have
+    //// very "degraded" triangles (close to a line), and the normal computation would be bad.
+    //// In this case, we would have to average the normal vector over each triangle of the polygon.
+    //// The Newell's formula is simpler and more direct here.
+    //osg::Vec3 normal( 0.0, 0.0, 0.0 );
+    //for ( size_t i = 0; i < poly->size(); ++i )
+    //{
+    //    osg::Vec3 pi = (*poly)[i];
+    //    osg::Vec3 pj = (*poly)[ (i+1) % poly->size() ];
+    //    normal[0] += ( pi[1] - pj[1] ) * ( pi[2] + pj[2] );
+    //    normal[1] += ( pi[2] - pj[2] ) * ( pi[0] + pj[0] );
+    //    normal[2] += ( pi[0] - pj[0] ) * ( pi[1] + pj[1] );
+    //}
+    //normal.normalize();
+
+    //osg::Vec3Array* normals = new osg::Vec3Array();
+    //normals->push_back( normal );
+    //osgGeom->setNormalArray( normals );
+    //osgGeom->setNormalBinding( osg::Geometry::BIND_OVERALL );
 }
 
 
@@ -389,7 +418,16 @@ BuildGeometryFilter::push( FeatureList& input, FilterContext& context )
     // convert all geom to triangles and consolidate into minimal set of Geometries
     if ( !_featureNameExpr.isSet() )
     {
+#if 1
         MeshConsolidator::run( *_geode.get() );
+#else
+        osgUtil::Optimizer opt;
+        opt.optimize( _geode.get(),
+            osgUtil::Optimizer::VERTEX_PRETRANSFORM |
+            osgUtil::Optimizer::INDEX_MESH |
+            osgUtil::Optimizer::VERTEX_POSTTRANSFORM |
+            osgUtil::Optimizer::MERGE_GEOMETRY );
+#endif
     }
 
     osg::Node* result = 0L;

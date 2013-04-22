@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -37,8 +37,6 @@
 #include <osgEarth/Version>
 
 #define LC "[ExtrudeGeometryFilter] "
-
-#define USE_VBOS true
 
 using namespace osgEarth;
 using namespace osgEarth::Features;
@@ -80,7 +78,8 @@ _maxAngle_deg       ( 5.0 ),
 _mergeGeometry      ( true ),
 _wallAngleThresh_deg( 60.0 ),
 _styleDirty         ( true ),
-_makeStencilVolume  ( false )
+_makeStencilVolume  ( false ),
+_useVertexBufferObjects( true )
 {
     //NOP
 }
@@ -633,7 +632,7 @@ void
 ExtrudeGeometryFilter::addDrawable(osg::Drawable*      drawable,
                                    osg::StateSet*      stateSet,
                                    const std::string&  name,
-                                   FeatureID           fid,
+                                   Feature*            feature,
                                    FeatureSourceIndex* index )
 {
     // find the geode for the active stateset, creating a new one if necessary. NULL is a 
@@ -655,7 +654,7 @@ ExtrudeGeometryFilter::addDrawable(osg::Drawable*      drawable,
 
     if ( index )
     {
-        index->tagPrimitiveSets( drawable, fid );
+        index->tagPrimitiveSets( drawable, feature );
     }
 }
 
@@ -676,7 +675,7 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
             Geometry* part = iter.next();
 
             osg::ref_ptr<osg::Geometry> walls = new osg::Geometry();
-            walls->setUseVertexBufferObjects(USE_VBOS);
+            walls->setUseVertexBufferObjects( _useVertexBufferObjects.get() );
             
             osg::ref_ptr<osg::Geometry> rooflines = 0L;
             osg::ref_ptr<osg::Geometry> baselines = 0L;
@@ -685,7 +684,7 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
             if ( part->getType() == Geometry::TYPE_POLYGON )
             {
                 rooflines = new osg::Geometry();
-                rooflines->setUseVertexBufferObjects(USE_VBOS);
+                rooflines->setUseVertexBufferObjects( _useVertexBufferObjects.get() );
 
                 // prep the shapes by making sure all polys are open:
                 static_cast<Polygon*>(part)->open();
@@ -695,14 +694,14 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
             if ( _outlineSymbol != 0L )
             {
                 outlines = new osg::Geometry();
-                outlines->setUseVertexBufferObjects(USE_VBOS);
+                outlines->setUseVertexBufferObjects( _useVertexBufferObjects.get() );
             }
 
             // make a base cap if we're doing stencil volumes.
             if ( _makeStencilVolume )
             {
                 baselines = new osg::Geometry();
-                baselines->setUseVertexBufferObjects(USE_VBOS);
+                baselines->setUseVertexBufferObjects( _useVertexBufferObjects.get() );
             }
 
             // calculate the extrusion height:
@@ -831,7 +830,7 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
 
                     // mark this geometry as DYNAMIC because otherwise the OSG optimizer will destroy it.
                     // TODO: why??
-                    rooflines->setDataVariance( osg::Object::DYNAMIC );
+                    //rooflines->setDataVariance( osg::Object::DYNAMIC );
 
                     if ( roofSkin )
                     {
@@ -852,23 +851,22 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                     name = input->eval( _featureNameExpr, &context );
 
                 FeatureSourceIndex* index = context.featureIndex();
-                FeatureID fid = input->getFID();
 
-                addDrawable( walls.get(), wallStateSet, name, fid, index );
+                addDrawable( walls.get(), wallStateSet, name, input, index );
 
                 if ( rooflines.valid() )
                 {
-                    addDrawable( rooflines.get(), roofStateSet, name, fid, index );
+                    addDrawable( rooflines.get(), roofStateSet, name, input, index );
                 }
 
                 if ( baselines.valid() )
                 {
-                    addDrawable( baselines.get(), 0L, name, fid, index );
+                    addDrawable( baselines.get(), 0L, name, input, index );
                 }
 
                 if ( outlines.valid() )
                 {
-                    addDrawable( outlines.get(), 0L, name, fid, index );
+                    addDrawable( outlines.get(), 0L, name, input, index );
                 }
             }   
         }
@@ -932,7 +930,16 @@ ExtrudeGeometryFilter::push( FeatureList& input, FilterContext& context )
     {
         for( SortedGeodeMap::iterator i = _geodes.begin(); i != _geodes.end(); ++i )
         {
+#if 1
             MeshConsolidator::run( *i->second.get() );
+#else
+        osgUtil::Optimizer opt;
+        opt.optimize( i->second.get(),
+            osgUtil::Optimizer::VERTEX_PRETRANSFORM |
+            osgUtil::Optimizer::INDEX_MESH |
+            osgUtil::Optimizer::VERTEX_POSTTRANSFORM |
+            osgUtil::Optimizer::MERGE_GEOMETRY );
+#endif
         }
     }
 

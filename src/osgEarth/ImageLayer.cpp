@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -164,12 +164,10 @@ ImageLayerTileProcessor::init(const ImageLayerOptions& options,
 
     if ( _options.noDataImageFilename().isSet() && !_options.noDataImageFilename()->empty() )
     {
-        URI noDataURI( *_options.noDataImageFilename() );
-        _noDataImage = noDataURI.getImage( dbOptions );
-        //_noDataImage = URI( *_options.noDataImageFilename() ).readImage(dbOptions).getImage();
+        _noDataImage = _options.noDataImageFilename()->getImage( dbOptions );
         if ( !_noDataImage.valid() )
         {
-            OE_WARN << "Failed to read nodata image from \"" << _options.noDataImageFilename().value() << "\"" << std::endl;
+            OE_WARN << "Failed to read nodata image from \"" << _options.noDataImageFilename()->full() << "\"" << std::endl;
         }
     }
 }
@@ -695,6 +693,12 @@ ImageLayer::createImageFromTileSource(const TileKey&    key,
     {
         result = source->createImage( key, op.get(), progress );
     }
+
+    // Process images with full alpha to properly support MP blending.
+    if ( result != 0L )
+    {
+        ImageUtils::featherAlphaRegions( result.get() );
+    }
     
     // If image creation failed (but was not intentionally canceled),
     // blacklist this tile for future requests.
@@ -703,8 +707,6 @@ ImageLayer::createImageFromTileSource(const TileKey&    key,
         source->getBlacklist()->add( key.getTileId() );
     }
 
-    //return result.release();
-    //return GeoImage(result.get(), finalKey.getExtent());
     return GeoImage(result.get(), key.getExtent());
 }
 
@@ -813,6 +815,12 @@ ImageLayer::assembleImageFromTileSource(const TileKey&    key,
             *_runtimeOptions.reprojectedTileSize(),
             *_runtimeOptions.reprojectedTileSize(),
             *_runtimeOptions.driver()->bilinearReprojection());
+    }
+
+    // Process images with full alpha to properly support MP blending.
+    if ( result.valid() )
+    {
+        ImageUtils::featherAlphaRegions( result.getImage() );
     }
 
     return result;

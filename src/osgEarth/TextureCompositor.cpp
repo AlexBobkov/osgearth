@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2012 Pelican Mapping
+ * Copyright 2008-2013 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -121,7 +121,7 @@ TextureLayout::assignPrimarySlot( ImageLayer* layer, int orderIndex )
 
 
 
-    OE_INFO << LC << "Allocated SLOT " << slot << "; primary slot for layer \"" << layer->getName() << "\"" << std::endl;
+    OE_DEBUG << LC << "Allocated SLOT " << slot << "; primary slot for layer \"" << layer->getName() << "\"" << std::endl;
 }
 
 void
@@ -331,10 +331,10 @@ TextureCompositor::reserveTextureImageUnit( int& out_unit )
         return false;
     }
 
-    else // multipass... all image layers are locked at unit 0
+    else // multipass or USER .. just simple reservations.
     {
         // search for an unused unit.
-        for( unsigned i=1; i<maxUnits; ++i ) // start at 1 because unit 0 is always reserved
+        for( unsigned i=0; i<maxUnits; ++i )
         {
             if ( _reservedUnits.find( i ) == _reservedUnits.end() )
             {
@@ -440,7 +440,7 @@ TextureCompositor::requiresUnitTextureSpace() const
 bool
 TextureCompositor::usesShaderComposition() const
 {
-    return _impl.valid() ? _impl->usesShaderComposition() : false;
+    return _impl.valid() ? _impl->usesShaderComposition() : true;
 }
 
 void

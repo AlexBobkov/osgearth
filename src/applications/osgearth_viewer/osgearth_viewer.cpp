@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2012 Pelican Mapping
+* Copyright 2008-2013 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -21,16 +21,30 @@
 #include <osgViewer/Viewer>
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthUtil/ExampleResources>
+#include <osgEarthAnnotation/ModelNode>
 
 #define LC "[viewer] "
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
+using namespace osgEarth::Annotation;
+
+int usage(char** argv)
+{
+    OE_NOTICE 
+        << "\nUsage: " << argv[0] << " file.earth" << std::endl
+        << MapNodeHelper().usage() << std::endl;
+    return 0;
+}
 
 int
 main(int argc, char** argv)
 {
     osg::ArgumentParser arguments(&argc,argv);
+
+    if ( arguments.read("--help") )
+        return usage( argv );
+
     if ( arguments.read("--stencil") )
         osg::DisplaySettings::instance()->setMinimumNumStencilBits( 8 );
 
@@ -57,9 +71,7 @@ main(int argc, char** argv)
     }
     else
     {
-        OE_NOTICE 
-            << "\nUsage: " << argv[0] << " file.earth" << std::endl
-            << MapNodeHelper().usage() << std::endl;
+        return usage(argv);
     }
     return 0;
 }

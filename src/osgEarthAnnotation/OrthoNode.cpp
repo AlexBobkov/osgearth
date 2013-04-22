@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2012 Pelican Mapping
+* Copyright 2008-2013 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -164,7 +164,7 @@ OrthoNode::traverse( osg::NodeVisitor& nv )
 
     if ( nv.getVisitorType() == osg::NodeVisitor::CULL_VISITOR )
     {
-        cv = static_cast<osgUtil::CullVisitor*>( &nv );
+        cv = Culling::asCullVisitor(nv);
 
         // make sure that we're NOT using the AutoTransform if this node is in the decluttering bin;
         // the decluttering bin automatically manages screen space transformation.
@@ -275,6 +275,44 @@ OrthoNode::setPosition( const GeoPoint& position )
         return false;
 
     return true;
+}
+
+void
+OrthoNode::applyStyle(const Style& style)
+{
+    // check for decluttering.
+    const TextSymbol* text = style.get<TextSymbol>();
+    if ( text && text->declutter().isSet() )
+    {
+        if ( text->declutter() == true )
+        {
+            this->getOrCreateStateSet()->setRenderBinDetails(
+                12,
+                OSGEARTH_DECLUTTER_BIN );
+        }
+        else
+        {
+            this->getOrCreateStateSet()->setRenderBinToInherit();
+        }
+    }
+
+    const IconSymbol* icon = style.get<IconSymbol>();
+    if ( icon && icon->declutter().isSet() )
+    {
+        if ( icon->declutter() == true )
+        {
+            this->getOrCreateStateSet()->setRenderBinDetails(
+                12,
+                OSGEARTH_DECLUTTER_BIN );
+        }
+        else
+        {
+            this->getOrCreateStateSet()->setRenderBinToInherit();
+        }
+    }
+
+    // up the chain
+    PositionedAnnotationNode::applyStyle( style );
 }
 
 bool
