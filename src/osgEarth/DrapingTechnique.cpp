@@ -21,6 +21,8 @@
 #include <osgEarth/Registry>
 #include <osgEarth/VirtualProgram>
 
+#include <osg/Stencil>
+#include <osg/Depth>
 #include <osg/BlendFunc>
 #include <osg/TexGen>
 #include <osg/Texture2D>
@@ -198,9 +200,12 @@ DrapingTechnique::setUpCamera(OverlayDecorator::TechRTTParams& params)
 
     // overlay geometry is rendered with no depth testing, and in the order it's found in the
     // scene graph... until further notice.
-    rttStateSet->setMode(GL_DEPTH_TEST, 0);
+    //rttStateSet->setMode(GL_DEPTH_TEST, 0);
     rttStateSet->setBinName( "TraversalOrderBin" );
-
+		
+    rttStateSet->setAttributeAndModes(new osg::Depth(osg::Depth::ALWAYS, 0.0, 1.0, false), osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+    rttStateSet->setMode(GL_STENCIL_TEST, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED);
+	
     // add to the terrain stateset, i.e. the stateset that the OverlayDecorator will
     // apply to the terrain before cull-traversing it. This will activate the projective
     // texturing on the terrain.
