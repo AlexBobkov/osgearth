@@ -135,6 +135,7 @@ OrthoNode::init()
     //this->addChild( _oq );
 
     _autoxform = new AnnotationUtils::OrthoNodeAutoTransform();
+    _autoxform->setMinimumScale(1.0);
     _autoxform->setAutoRotateMode( osg::AutoTransform::ROTATE_TO_SCREEN );
     _autoxform->setAutoScaleToScreen( true );
     _autoxform->setCullingActive( false ); // for the first pass
