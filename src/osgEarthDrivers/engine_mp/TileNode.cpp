@@ -17,11 +17,11 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include "TileNode"
-#include "TerrainNode"
 
 #include <osg/ClusterCullingCallback>
 #include <osg/NodeCallback>
 #include <osg/NodeVisitor>
+#include <osg/Uniform>
 
 using namespace osgEarth_engine_mp;
 using namespace osgEarth;
@@ -32,63 +32,91 @@ using namespace OpenThreads;
 
 //----------------------------------------------------------------------------
 
-TileNode::TileNode( const TileKey& key, GeoLocator* keyLocator ) :
-_key              ( key ),
-_locator          ( keyLocator ),
-_publicStateSet   ( 0L )
+TileNode::TileNode( const TileKey& key, const TileModel* model ) :
+_key               ( key ),
+_model             ( model ),
+_bornTime          ( 0.0 ),
+_lastTraversalFrame( 0 )
 {
     this->setName( key.str() );
-}
 
+    osg::StateSet* stateset = getOrCreateStateSet();
 
-TileNode::~TileNode()
-{
-    //nop
+    // TileKey uniform.
+    _keyUniform = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "oe_tile_key");
+    _keyUniform->setDataVariance( osg::Object::STATIC );
+    _keyUniform->set( osg::Vec4f(0,0,0,0) );
+    stateset->addUniform( _keyUniform );
+
+    // born-on date uniform.
+    _bornUniform = new osg::Uniform(osg::Uniform::FLOAT, "oe_tile_birthtime");
+    _bornUniform->set( -1.0f );
+    stateset->addUniform( _bornUniform );
 }
 
 
 void
-TileNode::setTileModel( TileModel* model )
+TileNode::setLastTraversalFrame(unsigned frame)
 {
-    _model = model;
-    _publicStateSet = 0L;
+  _lastTraversalFrame = frame;
 }
 
 
-bool
-TileNode::compile( TileModelCompiler* compiler, bool releaseModel )
+osg::BoundingSphere
+TileNode::computeBound() const
 {
-    if ( !_model.valid() )
-        return false;
+    osg::BoundingSphere bs = osg::MatrixTransform::computeBound();
+    
+    unsigned tw, th;
+    _key.getProfile()->getNumTiles(_key.getLOD(), tw, th);
 
-    osg::Node* node = 0L;
-    _publicStateSet = 0L;
+    // swap the Y index.
+    _keyUniform->set( osg::Vec4f(
+        _key.getTileX(),
+        th-_key.getTileY()-1.0,
+        _key.getLOD(),
+        bs.radius()) );
 
-    if ( !compiler->compile( _model.get(), node, _publicStateSet ) )
-        return false;
-
-    this->removeChildren( 0, this->getNumChildren() );
-    this->addChild( node );
-
-    // release the memory associated with the tile model.
-    if ( releaseModel )
-        _model = 0L;
-
-    return true;
+    return bs;
 }
+
 
 void
 TileNode::traverse( osg::NodeVisitor& nv )
 {
     // TODO: not sure we need this.
-    if ( nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR )
+    if ( nv.getVisitorType() == nv.CULL_VISITOR )
     {
         osg::ClusterCullingCallback* ccc = dynamic_cast<osg::ClusterCullingCallback*>(getCullCallback());
         if (ccc)
         {
             if (ccc->cull(&nv,0,static_cast<osg::State *>(0))) return;
         }
+
+        // reset the "birth" time if necessary - this is the time at which the 
+        // node passes cull
+        const osg::FrameStamp* fs = nv.getFrameStamp();
+        if ( fs )
+        {
+            unsigned frame = fs->getFrameNumber();
+
+            if ( (frame - _lastTraversalFrame > 1) || (_bornTime == 0.0) )
+            {
+                _bornTime = fs->getReferenceTime();
+                _bornUniform->set( (float)_bornTime );
+            }
+
+            _lastTraversalFrame = frame;
+        }
     }
 
-    osg::Group::traverse( nv );
+    osg::MatrixTransform::traverse( nv );
+}
+
+
+void
+TileNode::releaseGLObjects(osg::State* state) const
+{
+    if ( _model.valid() )
+        _model->releaseGLObjects( state );
 }

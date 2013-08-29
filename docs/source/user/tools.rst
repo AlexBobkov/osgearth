@@ -78,6 +78,11 @@ The most common usage of osgearth_cache is to populate a cache in a non-interact
 +-------------------------------------+--------------------------------------------------------------------+
 | ``--seed``                          | Seeds the cache in a .earth file                                   |
 +-------------------------------------+--------------------------------------------------------------------+
+| ``--estimate``                      | Print out an estimation of the number of tiles, disk space and     |
+|                                     | time it will take to perform this seed operation                   |
++-------------------------------------+--------------------------------------------------------------------+
+| ``--threads``                       |The number of threads to use for the seed operation (default=1)     |
++-------------------------------------+--------------------------------------------------------------------+
 | ``--min-level level``               | Lowest LOD level to seed (default=0)                               |
 +-------------------------------------+--------------------------------------------------------------------+
 | ``--max-level level``               | Highest LOD level to seed (default=highest available)              |
@@ -85,12 +90,17 @@ The most common usage of osgearth_cache is to populate a cache in a non-interact
 | ``--bounds xmin ymin xmax ymax``    | Geospatial bounding box to seed                                    |
 |                                     | (in map coordinates; default=entire map                            |
 +-------------------------------------+--------------------------------------------------------------------+
+| ``--index shapefile``               | Loads a shapefile (.shp) and uses the feature extents to set the   |
+|                                     | cache seeding bounding box(es). For each feature in the shapefile, |
+|                                     | adds a bounding box (similar to ``--bounds``) to constrain the     |
+|                                     | region you wish to cache.                                          |
++-------------------------------------+--------------------------------------------------------------------+
 | ``--cache-path path``               | Overrides the cache path in the .earth file                        |
 +-------------------------------------+--------------------------------------------------------------------+
 | ``--cache-type type``               | Overrides the cache type in the .earth file                        |
 +-------------------------------------+--------------------------------------------------------------------+
 | ``--purge``                         | Purges a layer cache in a .earth file                              |
-+-------------------------------------+--------------------------------------------------------------------+       
++-------------------------------------+--------------------------------------------------------------------+
 
 osgearth_package
 ----------------
@@ -119,6 +129,9 @@ osgearth_package creates a redistributable `TMS`_ based package from an earth fi
 | ``--overwrite``                    | overwrite existing tiles                                           |
 +------------------------------------+--------------------------------------------------------------------+
 | ``--keep-empties``                 | writes out fully transparent image tiles (normally discarded)      |
++------------------------------------+--------------------------------------------------------------------+
+| ``--continue-single-color``        | continues to subdivide single color tiles,                         |
+|                                    | subdivision typicall stops on single color images                  |
 +------------------------------------+--------------------------------------------------------------------+
 | ``--db-options``                   | db options string to pass to the image writer                      |
 |                                    | in quotes (e.g., "JPEG_QUALITY 60")                                |

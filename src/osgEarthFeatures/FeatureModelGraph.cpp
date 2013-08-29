@@ -361,7 +361,7 @@ FeatureModelGraph::getBoundInWorldCoords(const GeoExtent& extent,
     if ( mapf )
     {
         // Use an appropriate resolution for this extents width
-        double resolution = workingExtent.width();             
+        double resolution = workingExtent.width();
         ElevationQuery query( *mapf );
         GeoPoint p( mapf->getProfile()->getSRS(), center, ALTMODE_ABSOLUTE );
         query.getElevation( p, center.z(), resolution );
@@ -379,6 +379,12 @@ FeatureModelGraph::getBoundInWorldCoords(const GeoExtent& extent,
         workingExtent.getSRS()->transform( corner, ecefSRS, corner );
         //workingExtent.getSRS()->transformToECEF( center, center );
         //workingExtent.getSRS()->transformToECEF( corner, corner );
+    }
+
+    if (workingExtent.getSRS()->isGeographic() &&
+        ( workingExtent.width() >= 90 || workingExtent.height() >= 90 ) )
+    {
+        return osg::BoundingSphered( osg::Vec3d(0,0,0), 2*center.length() );
     }
 
     return osg::BoundingSphered( center, (center-corner).length() );
@@ -863,7 +869,7 @@ FeatureModelGraph::build(const Style&        defaultStyle,
                 }
 
                 // otherwise, all feature returned by this query will have the same style:
-                else
+                else if ( !_useTiledSource )
                 {
                     // combine the selection style with the incoming base style:
                     Style selectedStyle = *styles->getStyle( sel.getSelectedStyleName() );
@@ -877,6 +883,16 @@ FeatureModelGraph::build(const Style&        defaultStyle,
 
                     if ( styleGroup && !group->containsNode(styleGroup) )
                         group->addChild( styleGroup );
+                }
+
+                // Tried to apply a selector query to a tiled source, which is illegal because
+                // you cannot run an SQL expression on pre-tiled data (like TFS).
+                else
+                {
+                    OE_WARN << LC 
+                        << "Illegal: you cannot use a selector SQL query with a tiled feature source. "
+                        << "Consider using a JavaScript style expression instead."
+                        << std::endl;
                 }
             }
         }
@@ -997,22 +1013,30 @@ FeatureModelGraph::queryAndSortIntoStyleGroups(const Query&            query,
         if ( styleString.length() > 0 && styleString.at(0) == '{' )
         {
             Config conf( "style", styleString );
+            conf.setReferrer( styleExpr.uriContext().referrer() );
             conf.set( "type", "text/css" );
             combinedStyle = Style(conf);
         }
 
-        // otherwise, look up the style in the stylesheet:
+        // otherwise, look up the style in the stylesheet. Do NOT fall back on a default
+        // style in this case: for style expressions, the user must be explicity about 
+        // default styling; this is because there is no other way to exclude unwanted
+        // features.
         else
         {
-            const Style* selectedStyle = _session->styles()->getStyle(styleString);
+            const Style* selectedStyle = _session->styles()->getStyle(styleString, false);
             if ( selectedStyle )
                 combinedStyle = *selectedStyle;
         }
 
-        // create the node and add it.
-        osg::Group* styleGroup = createStyleGroup(combinedStyle, workingSet, context);
-        if ( styleGroup )
-            parent->addChild( styleGroup );
+        // if there is a valid style, create the node and add it. (Otherwise we will skip
+        // the feature.)
+        if ( !combinedStyle.empty() )
+        {
+            osg::Group* styleGroup = createStyleGroup(combinedStyle, workingSet, context);
+            if ( styleGroup )
+                parent->addChild( styleGroup );
+        }
     }
 }
 
@@ -1103,7 +1127,7 @@ FeatureModelGraph::createStyleGroup(const Style&        style,
 
 
 void
-FeatureModelGraph::checkForGlobalAltitudeStyles( const Style& style )
+FeatureModelGraph::checkForGlobalStyles( const Style& style )
 {
     const AltitudeSymbol* alt = style.get<AltitudeSymbol>();
     if ( alt )
@@ -1131,7 +1155,9 @@ FeatureModelGraph::checkForGlobalAltitudeStyles( const Style& style )
         const ExtrusionSymbol* extrusion = style.get<ExtrusionSymbol>();
         if ( extrusion )
         {
-            _clampable->depthOffset().enabled() = false;
+            DepthOffsetOptions d = _clampable->getDepthOffsetOptions();
+            d.enabled() = false;
+            _clampable->setDepthOffsetOptions( d );
         }
 
         // check for explicit depth offset render settings (note, this could
@@ -1140,7 +1166,17 @@ FeatureModelGraph::checkForGlobalAltitudeStyles( const Style& style )
         const RenderSymbol* render = style.get<RenderSymbol>();
         if ( render && render->depthOffset().isSet() )
         {
-            _clampable->depthOffset() = *render->depthOffset();
+            _clampable->setDepthOffsetOptions(*render->depthOffset());
+        }
+    }
+
+    else 
+    {
+        const RenderSymbol* render = style.get<RenderSymbol>();
+        if ( render && render->depthOffset().isSet() )
+        {
+            _depthOffsetAdapter.setGraph( this );
+            _depthOffsetAdapter.setDepthOffsetOptions( *render->depthOffset() );
         }
     }
 }
@@ -1153,7 +1189,7 @@ FeatureModelGraph::getOrCreateStyleGroupFromFactory(const Style& style)
 
     // Check the style and see if we need to active GPU clamping. GPU clamping
     // is currently all-or-nothing for a single FMG.
-    checkForGlobalAltitudeStyles( style );
+    checkForGlobalStyles( style );
 
     return styleGroup;
 }

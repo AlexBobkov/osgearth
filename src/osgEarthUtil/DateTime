@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2011 Pelican Mapping
+* Copyright 2008-2012 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -16,19 +16,18 @@
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
+#ifndef OSGEARTHUTIL_DATE_TIME_H
+#define OSGEARTHUTIL_DATE_TIME_H
 
-#ifndef OSGEARTH_ENGINE_OSGTERRAIN_LOD_FACTOR_CALLBACK_H
-#define OSGEARTH_ENGINE_OSGTERRAIN_LOD_FACTOR_CALLBACK_H 1
+#include <osgEarthUtil/Common>
+#include <osgEarth/DateTime>
 
-#include <osg/NodeCallback>
-
-namespace osgEarth_engine_mp
+namespace osgEarth { namespace Util
 {
-    struct LODFactorCallback : public osg::NodeCallback
-    {
-        void operator()(osg::Node* node, osg::NodeVisitor* nv);
-    };
+    // for backwards-compability.
+    // @deprecated - place use osgEarth::DateTime instead.
+    typedef osgEarth::DateTime DateTime;
 
-} // namespace osgEarth_engine_mp
+} } // namespace osgEarth::Util
 
-#endif
+#endif // OSGEARTHUTIL_DATE_TIME_H

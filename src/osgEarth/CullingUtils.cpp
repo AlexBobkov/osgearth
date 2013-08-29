@@ -18,6 +18,9 @@
  */
 #include <osgEarth/CullingUtils>
 #include <osgEarth/LineFunctor>
+#include <osgEarth/VirtualProgram>
+#include <osgEarth/DPLineSegmentIntersector>
+#include <osgEarth/GeoData>
 #include <osg/ClusterCullingCallback>
 #include <osg/PrimitiveSet>
 #include <osg/Geode>
@@ -597,13 +600,27 @@ DisableSubgraphCulling::operator()(osg::Node* n, osg::NodeVisitor* v)
 
 //------------------------------------------------------------------------
 
-OcclusionCullingCallback::OcclusionCullingCallback(const osg::Vec3d& world, osg::Node* node):
-_world(world),
-_node( node ),
-_visible( true ),
-_maxRange(200000),
-_maxRange2(_maxRange * _maxRange)
+// The max frame time in ms
+double OcclusionCullingCallback::_maxFrameTime = 10.0;
+
+OcclusionCullingCallback::OcclusionCullingCallback(const osgEarth::SpatialReference *srs, const osg::Vec3d& world, osg::Node* node):
+_srs        ( srs ),
+_world      ( world ),
+_node       ( node ),
+_visible    ( true ),
+_maxAltitude( 200000 )
 {
+    //nop
+}
+
+double OcclusionCullingCallback::getMaxFrameTime()
+{
+    return _maxFrameTime;
+}
+
+void OcclusionCullingCallback::setMaxFrameTime( double ms )
+{
+    _maxFrameTime = ms;
 }
 
 const osg::Vec3d& OcclusionCullingCallback::getWorld() const
@@ -616,50 +633,91 @@ void OcclusionCullingCallback::setWorld( const osg::Vec3d& world)
     _world = world;
 }
 
-double OcclusionCullingCallback::getMaxRange() const
+double OcclusionCullingCallback::getMaxAltitude() const
 {
-    return _maxRange;
+    return _maxAltitude;
 }
 
-void OcclusionCullingCallback::setMaxRange( double maxRange)
+void OcclusionCullingCallback::setMaxAltitude( double maxAltitude )
 {
-    _maxRange = maxRange;
-    _maxRange2 = maxRange * maxRange;
+    _maxAltitude = maxAltitude;    
 }
 
 void OcclusionCullingCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
 {
     if (nv->getVisitorType() == osg::NodeVisitor::CULL_VISITOR)
-    {
-        osg::Vec3d eye, center, up;
+    {        
         osgUtil::CullVisitor* cv = Culling::asCullVisitor(nv);
 
-        cv->getCurrentCamera()->getViewMatrixAsLookAt(eye,center,up);
+        static int frameNumber = -1;
+        static double remainingTime = OcclusionCullingCallback::_maxFrameTime;
+        static int numCompleted = 0;
+        static int numSkipped = 0;
+
+        if (nv->getFrameStamp()->getFrameNumber() != frameNumber)
+        {
+            if (numCompleted > 0 || numSkipped > 0)
+            {
+                OE_DEBUG << "OcclusionCullingCallback frame=" << frameNumber << " completed=" << numCompleted << " skipped=" << numSkipped << std::endl;
+            }
+            frameNumber = nv->getFrameStamp()->getFrameNumber();
+            numCompleted = 0;
+            numSkipped = 0;
+            remainingTime = OcclusionCullingCallback::_maxFrameTime;
+        }
+
+        osg::Vec3d eye = cv->getViewPoint();        
 
         if (_prevEye != eye || _prevWorld != _world)
         {
-            double range = (eye-_world).length2();
-            //Only do the intersection if we are close enough for it to matter
-            if (range <= _maxRange2 && _node.valid())
+            if (remainingTime > 0.0)
             {
-                //Compute the intersection from the eye to the world point
-                osg::Vec3d start = eye;
-                osg::Vec3d end = _world;
-                osgUtil::LineSegmentIntersector* i = new osgUtil::LineSegmentIntersector( start, end );
-                i->setIntersectionLimit( osgUtil::Intersector::LIMIT_ONE );
-                osgUtil::IntersectionVisitor iv;
-                iv.setIntersector( i );
-                _node->accept( iv );
-                osgUtil::LineSegmentIntersector::Intersections& results = i->getIntersections();
-                _visible = results.empty();
+                double alt = 0.0;
+
+                if ( _srs && !_srs->isProjected() )
+                {
+                    osgEarth::GeoPoint mapPoint;
+                    mapPoint.fromWorld( _srs.get(), eye );
+                    alt = mapPoint.z();
+                }
+                else
+                {
+                    alt = eye.z();
+                }
+
+
+                //Only do the intersection if we are close enough for it to matter
+                if (alt <= _maxAltitude && _node.valid())
+                {
+                    //Compute the intersection from the eye to the world point
+                    osg::Timer_t startTick = osg::Timer::instance()->tick();
+                    osg::Vec3d start = eye;
+                    osg::Vec3d end = _world;
+                    DPLineSegmentIntersector* i = new DPLineSegmentIntersector( start, end );
+                    i->setIntersectionLimit( osgUtil::Intersector::LIMIT_ONE );
+                    osgUtil::IntersectionVisitor iv;
+                    iv.setIntersector( i );
+                    _node->accept( iv );
+                    osgUtil::LineSegmentIntersector::Intersections& results = i->getIntersections();
+                    _visible = results.empty();
+                    osg::Timer_t endTick = osg::Timer::instance()->tick();
+                    double elapsed = osg::Timer::instance()->delta_m( startTick, endTick );
+                    remainingTime -= elapsed;
+                }
+                else
+                {
+                    _visible = true;
+                }
+
+                numCompleted++;
+
+                _prevEye = eye;
+                _prevWorld = _world;
             }
             else
             {
-                _visible = true;
+                numSkipped++;
             }
-
-            _prevEye = eye;
-            _prevWorld = _world;
         }
 
         if (_visible)
@@ -696,6 +754,10 @@ _cv             ( cv )
     this->setImageRequestHandler( _cv->getImageRequestHandler() );
     this->setUserData( _cv->getUserData() );
     this->setComputeNearFarMode( _cv->getComputeNearFarMode() );
+
+    this->pushViewport( _cv->getViewport() );
+    this->pushProjectionMatrix( _cv->getProjectionMatrix() );
+    this->pushModelViewMatrix( _cv->getModelViewMatrix(), osg::Transform::ABSOLUTE_RF );
 }
 
 osg::Vec3 
@@ -901,4 +963,96 @@ ProxyCullVisitor::apply(osg::Geode& node)
     if (node_state) _cv->popStateSet();
 
     _cv->popFromNodePath();
+}
+
+//-------------------------------------------------------------------------
+
+namespace
+{
+    const char* horizon_vs =
+        "#version " GLSL_VERSION_STR "\n"
+        GLSL_DEFAULT_PRECISION_FLOAT "\n"
+        "uniform mat4 osg_ViewMatrix; \n"
+        "varying float oe_horizon_alpha; \n"
+        "void oe_horizon_vertex(inout vec4 VertexVIEW) \n"
+        "{ \n"
+        "    const float scale     = 0.001; \n"                 // scale factor keeps dots&crosses in SP range
+        "    const float radiusMax = 6371000.0 * scale; \n"
+        "    vec3  originVIEW = (osg_ViewMatrix * vec4(0,0,0,1)).xyz * scale; \n"
+        "    vec3  x1 = vec3(0,0,0) - originVIEW; \n"              // vector from origin -> camera
+        "    vec3  x2 = (VertexVIEW.xyz * scale) - originVIEW; \n" // vector from origin -> vertex
+        "    vec3  v  = x2-x1; \n"
+        "    float vlen = length(v); \n"
+        "    float t = -dot(x1,v)/(vlen*vlen); \n"
+        "    bool visible = false; \n"
+        "    if ( t > 1.0 || t < 0.0 ) { \n"
+        "        oe_horizon_alpha = 1.0; \n"
+        "    } \n"
+        "    else { \n"
+        "        float d = length(cross(x1,x2)) / vlen; \n"
+        "        oe_horizon_alpha = d >= radiusMax ? 1.0 : 0.0; \n"
+        "    } \n"
+        "} \n";
+
+    const char* horizon_fs =
+        "#version " GLSL_VERSION_STR "\n"
+        GLSL_DEFAULT_PRECISION_FLOAT "\n"
+        "varying float oe_horizon_alpha; \n"
+        "void oe_horizon_fragment(inout vec4 color) \n"
+        "{ \n"
+        "    color.a *= oe_horizon_alpha; \n"
+        "} \n";
+}
+
+
+void
+HorizonCullingProgram::install(osg::StateSet* stateset)
+{
+    if ( stateset )
+    {
+        VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);
+        vp->setFunction( "oe_horizon_vertex",   horizon_vs, ShaderComp::LOCATION_VERTEX_VIEW );
+        vp->setFunction( "oe_horizon_fragment", horizon_fs, ShaderComp::LOCATION_FRAGMENT_COLORING );
+    }
+}
+
+void
+HorizonCullingProgram::remove(osg::StateSet* stateset)
+{
+    if ( stateset )
+    {
+        VirtualProgram* vp = VirtualProgram::get(stateset);
+        if ( vp )
+        {
+            vp->removeShader( "oe_horizon_vertex" );
+            vp->removeShader( "oe_horizon_fragment" );
+        }
+    }
+}
+
+//----------------------------------------------------------------
+
+LODScaleGroup::LODScaleGroup() :
+_scaleFactor( 1.0f )
+{
+    //nop
+}
+
+void
+LODScaleGroup::traverse(osg::NodeVisitor& nv)
+{
+    if ( nv.getVisitorType() == nv.CULL_VISITOR )
+    {
+        osg::CullStack* cs = dynamic_cast<osg::CullStack*>( &nv );
+        if ( cs )
+        {
+            float lodscale = cs->getLODScale();
+            cs->setLODScale( lodscale * _scaleFactor );
+            std::for_each( _children.begin(), _children.end(), osg::NodeAcceptOp(nv));
+            cs->setLODScale( lodscale );
+            return;
+        }
+    }
+
+    osg::Group::traverse( nv );
 }

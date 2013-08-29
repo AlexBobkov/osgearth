@@ -131,6 +131,31 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
             // resolve the geometry type from the component type and the symbology:
             Geometry::Type renderType = Geometry::TYPE_UNKNOWN;
 
+            // First priority is the symbol with a compatible part type.
+            if (polySymbol != 0L && 
+                part->getType() != Geometry::TYPE_POINTSET && 
+                part->getTotalPointCount() >= 3)
+            {
+                renderType = Geometry::TYPE_POLYGON;
+            }
+            else if (lineSymbol != 0L)
+            {
+                if ( part->getType() == Geometry::TYPE_POLYGON )
+                    renderType = Geometry::TYPE_RING;
+                else
+                    renderType = part->getType();
+            }
+            else if (pointSymbol != 0L)
+            {
+                renderType = Geometry::TYPE_POINTSET;
+            }
+
+            // fall back on just using the geometry type.
+            else
+            {
+                renderType = part->getType();
+            }
+#if 0
             // First priority is a matching part type and symbol:
             if ( polySymbol != 0L && part->getType() == Geometry::TYPE_POLYGON )
             {
@@ -167,6 +192,8 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
             {
                 renderType = part->getType();
             }
+#endif
+
 
             // validate the geometry:
             if ( renderType == Geometry::TYPE_POLYGON && part->size() < 3 )
@@ -244,21 +271,22 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
             }
 
 
+
             // assign the primary color:
 #if USE_SINGLE_COLOR            
             osg::Vec4Array* colors = new osg::Vec4Array( 1 );
-            (*colors)[0] = primaryColor;
+            (*colors)[0] = primaryColor;            
+            osgGeom->setColorArray( colors );
             osgGeom->setColorBinding( osg::Geometry::BIND_OVERALL );
 #else
 
             osg::Vec4Array* colors = new osg::Vec4Array( osgGeom->getVertexArray()->getNumElements() ); //allPoints->size() );
             for(unsigned c=0; c<colors->size(); ++c)
-                (*colors)[c] = primaryColor;
+                (*colors)[c] = primaryColor;            
+            osgGeom->setColorArray( colors );
             osgGeom->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
 #endif
-
-
-            osgGeom->setColorArray( colors );
+            
             
 
             _geode->addDrawable( osgGeom );
@@ -283,7 +311,8 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
                 
                 osg::Vec4f outlineColor = lineSymbol->stroke()->color();                
 
-                osg::Vec4Array* outlineColors = new osg::Vec4Array();                
+                osg::Vec4Array* outlineColors = new osg::Vec4Array();   
+                outline->setColorArray(outlineColors);
 #if USE_SINGLE_COLOR
                 outlineColors->reserve(1);
                 outlineColors->push_back( outlineColor );
@@ -293,9 +322,8 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
                 outlineColors->reserve( pcount );
                 for( unsigned c=0; c < pcount; ++c )
                     outlineColors->push_back( outlineColor );
-                outline->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
-#endif
-                outline->setColorArray(outlineColors);
+                outline->setColorBinding( osg::Geometry::BIND_PER_VERTEX );                
+#endif                
 
                 // check for explicit tessellation disable:                
                 bool disableTess = lineSymbol && lineSymbol->tessellation().isSetTo(0);

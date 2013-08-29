@@ -30,8 +30,11 @@
 #include <osg/Version>
 #include <osgEarth/Common>
 #include <osgEarth/Registry>
+#include <osgEarth/Capabilities>
 #include <osgEarth/Utils>
 #include <osgEarth/CullingUtils>
+#include <osgEarth/VirtualProgram>
+#include <osgEarth/ShaderGenerator>
 
 using namespace osgEarth;
 using namespace osgEarth::Symbology;
@@ -46,35 +49,120 @@ namespace
 {
     // ControlNodeBin shaders.
 
+#ifdef OSG_GLES2_AVAILABLE
     const char* s_controlVertexShader =
+        "#version " GLSL_VERSION_STR "\n"
+        GLSL_DEFAULT_PRECISION_FLOAT "\n"
+        "varying mediump vec4 texcoord; \n"
+        "varying mediump vec4 vColor; \n"
+        "attribute vec4 osg_MultiTexCoord0; \n"
+        "attribute vec4 osg_Color; \n"
         "void main() \n"
         "{ \n"
         "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex; \n"
-        "    gl_TexCoord[0] = gl_MultiTexCoord0; \n"
-        "    gl_FrontColor = gl_Color; \n"
+        "    texcoord = osg_MultiTexCoord0; \n"
+        "    vColor = osg_Color; \n"
         "} \n";
-
+    
+    const char* s_controlFragmentShader =
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "uniform sampler2D tex0; \n"
+    "uniform float oe_controls_visibleTime; \n"
+    "uniform float osg_FrameTime; \n"
+    "varying mediump vec4 texcoord; \n"
+    "varying mediump vec4 vColor; \n"
+    "void main() \n"
+    "{ \n"
+    "    float opacity = clamp( osg_FrameTime - oe_controls_visibleTime, 0.0, 1.0 ); \n"
+    "    gl_FragColor = vec4(vColor.rgb, vColor.a * opacity); \n"
+    "} \n";
+    
     const char* s_imageControlFragmentShader =
-        "uniform sampler2D tex0; \n"
-        "uniform float visibleTime; \n"
-        "uniform float osg_FrameTime; \n"
-        "void main() \n"
-        "{ \n"
-        "    float opacity = clamp( osg_FrameTime - visibleTime, 0.0, 1.0 ); \n"
-        "    vec4 texel = texture2D(tex0, gl_TexCoord[0].st); \n"
-        "    gl_FragColor = vec4(texel.rgb, texel.a * opacity); \n"
-        "} \n";
-
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "uniform sampler2D tex0; \n"
+    "uniform float oe_controls_visibleTime; \n"
+    "uniform float osg_FrameTime; \n"
+    "varying mediump vec4 texcoord; \n"
+    "varying mediump vec4 vColor; \n"
+    "void main() \n"
+    "{ \n"
+    "    float opacity = clamp( osg_FrameTime - oe_controls_visibleTime, 0.0, 1.0 ); \n"
+    "    vec4 texel = texture2D(tex0, texcoord.st); \n"
+    "    gl_FragColor = vec4(texel.rgb, texel.a * opacity); \n"
+    "} \n";
+    
     const char* s_labelControlFragmentShader =
-        "uniform sampler2D tex0; \n"
-        "uniform float visibleTime; \n"
-        "uniform float osg_FrameTime; \n"
-        "void main() \n"
-        "{ \n"
-        "    float opacity = clamp( osg_FrameTime - visibleTime, 0.0, 1.0 ); \n"
-        "    vec4 texel = texture2D(tex0, gl_TexCoord[0].st); \n"       
-        "    gl_FragColor = vec4(gl_Color.rgb, texel.a * opacity); \n"
-        "} \n";
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "uniform sampler2D tex0; \n"
+    "uniform float oe_controls_visibleTime; \n"
+    "uniform float osg_FrameTime; \n"
+    "varying mediump vec4 texcoord; \n"
+    "varying mediump vec4 vColor; \n"
+    "void main() \n"
+    "{ \n"
+    "    float opacity = clamp( osg_FrameTime - oe_controls_visibleTime, 0.0, 1.0 ); \n"
+    "    vec4 texel = texture2D(tex0, texcoord.st); \n"
+    "    gl_FragColor = vec4(vColor.rgb, texel.a * opacity); \n"
+    "} \n";
+#else
+
+    const char* s_controlVertexShader =
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "varying vec4 texcoord; \n"
+    "void main() \n"
+    "{ \n"
+    "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex; \n"
+    "    texcoord = gl_MultiTexCoord0; \n"
+    "    gl_FrontColor = gl_Color; \n"
+    "} \n";
+
+    const char* s_controlFragmentShader =
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "uniform sampler2D tex0; \n"
+    "uniform float oe_controls_visibleTime; \n"
+    "uniform float osg_FrameTime; \n"
+    "void main() \n"
+    "{ \n"
+    "    float opacity = clamp( osg_FrameTime - oe_controls_visibleTime, 0.0, 1.0 ); \n"
+    "    gl_FragColor = vec4(gl_Color.rgb, gl_Color.a * opacity); \n"
+    "} \n";
+    
+    const char* s_imageControlFragmentShader =
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "uniform sampler2D tex0; \n"
+    "uniform float oe_controls_visibleTime; \n"
+    "uniform float osg_FrameTime; \n"
+    "varying vec4 texcoord; \n"
+    "void main() \n"
+    "{ \n"
+    "    float opacity = clamp( osg_FrameTime - oe_controls_visibleTime, 0.0, 1.0 ); \n"
+    "    vec4 texel = texture2D(tex0, texcoord.st); \n"
+    "    gl_FragColor = vec4(texel.rgb, texel.a * opacity); \n"
+    "} \n";
+    
+    const char* s_labelControlFragmentShader =
+    "#version " GLSL_VERSION_STR "\n"
+    GLSL_DEFAULT_PRECISION_FLOAT "\n"
+    "uniform sampler2D tex0; \n"
+    "uniform float oe_controls_visibleTime; \n"
+    "uniform float osg_FrameTime; \n"
+    "varying vec4 texcoord; \n"
+    "void main() \n"
+    "{ \n"
+    "    float opacity = clamp( osg_FrameTime - oe_controls_visibleTime, 0.0, 1.0 ); \n"
+    "    vec4 texel = texture2D(tex0, texcoord.st); \n"
+    "    gl_FragColor = vec4(gl_Color.rgb, texel.a * opacity); \n"
+    "} \n";
+
+#endif
+
+    
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +291,7 @@ Control::init()
     _vfill = false;    
     _visible = true;
     _active = false;
-    _absorbEvents = false;
+    _absorbEvents = true;
     _dirty = true;
 }
 
@@ -549,6 +637,14 @@ Control::draw(const ControlContext& cx, DrawableList& out )
             (*colors)[0] = _active && _activeColor.isSet() ? _activeColor.value() : _backColor.value();
             _geom->setColorArray( colors );
             _geom->setColorBinding( osg::Geometry::BIND_OVERALL );
+            
+            if ( Registry::capabilities().supportsGLSL() )
+            {
+                osg::Program* program = new osg::Program();
+                program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
+                program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_controlFragmentShader ) );
+                _geom->getOrCreateStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+            }
 
             out.push_back( _geom.get() );
         }
@@ -773,12 +869,15 @@ LabelControl::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
         LabelText* t = new LabelText();
 
 #if 1
-        // needs a special shader
-        // todo: doesn't work. why?
-        osg::Program* program = new osg::Program();
-        program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
-        program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_labelControlFragmentShader ) );
-        t->getOrCreateStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+        if ( Registry::capabilities().supportsGLSL() )
+        {
+            // needs a special shader
+            // todo: doesn't work. why?
+            osg::Program* program = new osg::Program();
+            program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
+            program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_labelControlFragmentShader ) );
+            t->getOrCreateStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+        }
 #endif
 
         t->setText( _text, _encoding );
@@ -1054,10 +1153,13 @@ ImageControl::draw( const ControlContext& cx, DrawableList& out )
         g->getStateSet()->setTextureAttributeAndModes( 0, texenv, osg::StateAttribute::ON );
         
 #ifndef IMAGECONTROL_TEXRECT
-        osg::Program* program = new osg::Program();
-        program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
-        program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_imageControlFragmentShader ) );
-        g->getStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+        if ( Registry::capabilities().supportsGLSL() )
+        {
+            osg::Program* program = new osg::Program();
+            program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
+            program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_imageControlFragmentShader ) );
+            g->getStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+        }
 #endif
 
         out.push_back( g );
@@ -1195,6 +1297,14 @@ HSliderControl::draw( const ControlContext& cx, DrawableList& out )
             (*c)[0] = *foreColor();
             g->setColorArray( c );
             g->setColorBinding( osg::Geometry::BIND_OVERALL );
+            
+            if ( Registry::capabilities().supportsGLSL() )
+            {
+                osg::Program* program = new osg::Program();
+                program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
+                program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_controlFragmentShader ) );
+                g->getOrCreateStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+            }
 
             out.push_back( g.get() );
         }
@@ -1208,7 +1318,7 @@ HSliderControl::handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapte
     {
         float relX = ea.getX() - _renderPos.x();
 
-        setValue( _min + (_max-_min) * ( relX/_renderSize.x() ) );
+        setValue( osg::clampBetween(_min + (_max-_min) * ( relX/_renderSize.x() ), _min, _max) );
         aa.requestRedraw();
 
         return true;
@@ -1300,6 +1410,14 @@ CheckBoxControl::draw( const ControlContext& cx, DrawableList& out )
         (*c)[0] = *foreColor();
         g->setColorArray( c );
         g->setColorBinding( osg::Geometry::BIND_OVERALL );
+        
+        if ( Registry::capabilities().supportsGLSL() )
+        {
+            osg::Program* program = new osg::Program();
+            program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
+            program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_controlFragmentShader ) );
+            g->getOrCreateStateSet()->setAttributeAndModes( program, osg::StateAttribute::ON );
+        }
 
         out.push_back( g );
     }
@@ -1478,6 +1596,17 @@ Container::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
 {
     if ( visible() == true )
     {
+        float w = width().isSet()  ? std::max( width().value(),  _renderSize.x() ) : _renderSize.x();
+        float h = height().isSet() ? std::max( height().value(), _renderSize.y() ) : _renderSize.y();
+
+        _renderSize.set(
+            w + padding().x(),
+            h + padding().y() );
+
+        out_size.set(
+            _renderSize.x() + margin().x(),
+            _renderSize.y() + margin().y() );
+
         if ( _frame.valid() )
         {
             _frame->setWidth( _renderSize.x() );
@@ -1486,10 +1615,6 @@ Container::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
             osg::Vec2f dummy;
             _frame->calcSize( cx, dummy );
         }
-
-        // no need to set the output vars.
-
-        //_dirty = false;
     }
 }
 
@@ -1606,16 +1731,13 @@ VBox::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
             _renderSize.y() += first ? childSize.y() : childSpacing() + childSize.y();
         }
 
-        _renderSize.set(
-            _renderSize.x() + padding().x(),
-            _renderSize.y() + padding().y() );
+        //_renderSize.set(
+        //    _renderSize.x() + padding().x(),
+        //    _renderSize.y() + padding().y() );
 
-        // process fills:
-
-
-        out_size.set(
-            _renderSize.x() + margin().x(),
-            _renderSize.y() + margin().y() );
+        //out_size.set(
+        //    _renderSize.x() + margin().x(),
+        //    _renderSize.y() + margin().y() );
 
         Container::calcSize( cx, out_size );
     }
@@ -1748,16 +1870,16 @@ HBox::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
             _renderSize.y() = osg::maximum( _renderSize.y(), childSize.y() );
         }
     
-    // If width explicitly set and > total width of children - use it
-    if (width().isSet() && width().get() > _renderSize.x()) _renderSize.x() = width().get();
+        // If width explicitly set and > total width of children - use it
+        if (width().isSet() && width().get() > _renderSize.x()) _renderSize.x() = width().get();
 
-        _renderSize.set(
-            _renderSize.x() + padding().x(),
-            _renderSize.y() + padding().y() );
+        //_renderSize.set(
+        //    _renderSize.x() + padding().x(),
+        //    _renderSize.y() + padding().y() );
 
-        out_size.set(
-            _renderSize.x() + margin().x(),
-            _renderSize.y() + margin().y() );
+        //out_size.set(
+        //    _renderSize.x() + margin().x(),
+        //    _renderSize.y() + margin().y() );
 
         Container::calcSize( cx, out_size );
     }
@@ -1874,6 +1996,17 @@ Grid::cell(int col, int row)
     return _rows[row][col];
 }
 
+Control*
+Grid::getControl(int col, int row)
+{
+    if ( row < (int)_rows.size() && col < (int)_rows[row].size() )
+    {
+        osg::ref_ptr<Control>& c = cell(col, row);
+        return c.get();
+    }
+    else return 0L;
+}
+
 void
 Grid::expandToInclude( int col, int row )
 {
@@ -1967,13 +2100,13 @@ Grid::calcSize( const ControlContext& cx, osg::Vec2f& out_size )
             _renderSize.y() += childSpacing() * (numRows-1);
         }
         
-        _renderSize.set(
-            _renderSize.x() + padding().x(),
-            _renderSize.y() + padding().y() );
+        //_renderSize.set(
+        //    _renderSize.x() + padding().x(),
+        //    _renderSize.y() + padding().y() );
 
-        out_size.set(
-            _renderSize.x() + margin().x(),
-            _renderSize.y() + margin().y() );
+        //out_size.set(
+        //    _renderSize.x() + margin().x(),
+        //    _renderSize.y() + margin().y() );
 
         Container::calcSize( cx, out_size );
     }
@@ -2261,16 +2394,20 @@ _fading        ( true )
 
     osg::StateSet* stateSet = _group->getOrCreateStateSet();
 
-    osg::Program* program = new osg::Program();
-    program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
-    program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_labelControlFragmentShader ) );
-    stateSet->setAttributeAndModes( program, osg::StateAttribute::ON );
-
-    osg::Uniform* defaultOpacity = new osg::Uniform( osg::Uniform::FLOAT, "opacity" );
+    if ( Registry::capabilities().supportsGLSL() )
+    {
+        osg::Program* program = new osg::Program();
+        program->addShader( new osg::Shader( osg::Shader::VERTEX, s_controlVertexShader ) );
+        program->addShader( new osg::Shader( osg::Shader::FRAGMENT, s_controlFragmentShader ) );
+        stateSet->setAttributeAndModes( program, osg::StateAttribute::ON );
+    }
+    
+    //TODO: appears to be unused
+    osg::Uniform* defaultOpacity = new osg::Uniform( osg::Uniform::FLOAT, "oe_controls_opacity" );
     defaultOpacity->set( 1.0f );
     stateSet->addUniform( defaultOpacity );
 
-    osg::Uniform* defaultVisibleTime = new osg::Uniform( osg::Uniform::FLOAT, "visibleTime" );
+    osg::Uniform* defaultVisibleTime = new osg::Uniform( osg::Uniform::FLOAT, "oe_controls_visibleTime" );
     defaultVisibleTime->set( 0.0f );
     stateSet->addUniform( defaultVisibleTime );    
 }
@@ -2557,11 +2694,14 @@ ControlCanvas::init( osgViewer::View* view, bool registerCanvas )
     ss->setMode( GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE );
     ss->setMode( GL_BLEND, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE );
     ss->setAttributeAndModes( new osg::Depth( osg::Depth::ALWAYS, 0, 1, false ) );
-    ss->setRenderBinMode( osg::StateSet::USE_RENDERBIN_DETAILS );
-    ss->setBinName( OSGEARTH_CONTROLS_BIN );
+    //ss->setRenderBinMode( osg::StateSet::USE_RENDERBIN_DETAILS );
+    //ss->setBinName( OSGEARTH_CONTROLS_BIN );
 
     // keeps the control bin shaders from "leaking out" into the scene graph :/
-    ss->setAttributeAndModes( new osg::Program(), osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED );
+    if ( Registry::capabilities().supportsGLSL() )
+    {
+        ss->setAttributeAndModes( new osg::Program(), osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED );
+    }
 
     _controlNodeBin = new ControlNodeBin();
     this->addChild( _controlNodeBin->getControlGroup() );

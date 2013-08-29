@@ -26,6 +26,8 @@
 #include <osgEarthFeatures/ScatterFilter>
 #include <osgEarthFeatures/SubstituteModelFilter>
 #include <osgEarthFeatures/TessellateOperator>
+#include <osgEarth/AutoScale>
+#include <osgEarth/CullingUtils>
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
 #include <osgEarth/ShaderGenerator>
@@ -336,7 +338,7 @@ GeometryCompiler::compile(FeatureList&          workingSet,
     }
 
     // instance substitution (replaces marker)
-    else if ( model || icon )
+    else if ( model ) // || icon )
     {
         const InstanceSymbol* instance = model ? (const InstanceSymbol*)model : (const InstanceSymbol*)icon;
 
@@ -384,6 +386,12 @@ GeometryCompiler::compile(FeatureList&          workingSet,
         if ( node )
         {
             resultGroup->addChild( node );
+
+            // enable auto scaling on the group?
+            if ( model && model->autoScale() == true )
+            {
+                resultGroup->getOrCreateStateSet()->setRenderBinDetails(0, osgEarth::AUTO_SCALE_BIN );
+            }
         }
     }
 
@@ -463,7 +471,7 @@ GeometryCompiler::compile(FeatureList&          workingSet,
         }
     }
 
-    if ( text )
+    if ( text || icon )
     {
         if ( altRequired )
         {

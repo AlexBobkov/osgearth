@@ -19,6 +19,7 @@
 #include <osgEarth/HTTPClient>
 #include <osgEarth/Registry>
 #include <osgEarth/Version>
+#include <osgEarth/Progress>
 #include <osgDB/ReadFile>
 #include <osgDB/Registry>
 #include <osgDB/FileNameUtils>
@@ -370,7 +371,9 @@ HTTPClient::initializeImpl()
     curl_easy_setopt( _curl_handle, CURLOPT_FOLLOWLOCATION, (void*)1 );
     curl_easy_setopt( _curl_handle, CURLOPT_MAXREDIRS, (void*)5 );
     curl_easy_setopt( _curl_handle, CURLOPT_PROGRESSFUNCTION, &CurlProgressCallback);
-    curl_easy_setopt( _curl_handle, CURLOPT_NOPROGRESS, (void*)0 ); //FALSE);    
+    curl_easy_setopt( _curl_handle, CURLOPT_NOPROGRESS, (void*)0 ); //FALSE);
+    curl_easy_setopt( _curl_handle, CURLOPT_FILETIME, true );
+
     long timeout = s_timeout;
     const char* timeoutEnv = getenv("OSGEARTH_HTTP_TIMEOUT");
     if (timeoutEnv)
@@ -671,7 +674,7 @@ HTTPClient::doGet( const HTTPRequest& request, const osgDB::Options* options, Pr
         }
     }
 
-    const char* proxyEnvAuth = getenv("OSGEARTH_CURL_PROXYAUTH");	
+    const char* proxyEnvAuth = getenv("OSGEARTH_CURL_PROXYAUTH");
     if (proxyEnvAuth)
     {
         proxy_auth = std::string(proxyEnvAuth);
@@ -797,36 +800,39 @@ HTTPClient::doGet( const HTTPRequest& request, const osgDB::Options* options, Pr
         res = response_code == 408 ? CURLE_OPERATION_TIMEDOUT : CURLE_COULDNT_CONNECT;
     }
 
+    HTTPResponse response( response_code );
+    
+    // read the response content type:
+    char* content_type_cp;
+    curl_easy_getinfo( _curl_handle, CURLINFO_CONTENT_TYPE, &content_type_cp );
+    if ( content_type_cp == NULL )
+    {
+        OE_WARN << LC
+            << "NULL Content-Type (protocol violation) " 
+            << "URL=" << request.getURL() << std::endl;
+        return HTTPResponse(0L);
+    }
+    response._mimeType = content_type_cp;
+
     if ( s_HTTP_DEBUG )
     {
-        OE_NOTICE << LC << "GET(" << response_code << "): \"" << request.getURL() << "\"" << std::endl;
+        TimeStamp filetime = 0;
+        if (CURLE_OK != curl_easy_getinfo(_curl_handle, CURLINFO_FILETIME, &filetime))
+            filetime = 0;
+
+        OE_NOTICE << LC 
+            << "GET(" << response_code << ", " << response._mimeType << ") : \"" 
+            << request.getURL() << "\" (" << DateTime(filetime).asRFC1123() << ")"<< std::endl;
     }
 
-    HTTPResponse response( response_code );
-   
-    if ( response_code == 200L && res != CURLE_ABORTED_BY_CALLBACK && res != CURLE_OPERATION_TIMEDOUT )
+    // upon success, parse the data:
+    if ( res != CURLE_ABORTED_BY_CALLBACK && res != CURLE_OPERATION_TIMEDOUT )
     {
-        // check for multipart content:
-        char* content_type_cp;
-        curl_easy_getinfo( _curl_handle, CURLINFO_CONTENT_TYPE, &content_type_cp );
-        if ( content_type_cp == NULL )
-        {
-            OE_WARN << LC
-                << "NULL Content-Type (protocol violation) " 
-                << "URL=" << request.getURL() << std::endl;
-            return HTTPResponse(0L);
-        }
-
-        // NOTE:
-        //   WCS 1.1 specified a "multipart/mixed" response, but ArcGIS Server gives a "multipart/related"
-        //   content type ...
-
         std::string content_type( content_type_cp );
 
-        //OE_DEBUG << LC << "content-type = \"" << content_type << "\"" << std::endl;
-
-        if ( content_type.length() > 9 && ::strstr( content_type.c_str(), "multipart" ) == content_type.c_str() )
-        //if ( content_type == "multipart/mixed; boundary=wcs" ) //todo: parse this.
+        // check for multipart content
+        if (response._mimeType.length() > 9 && 
+            ::strstr( response._mimeType.c_str(), "multipart" ) == response._mimeType.c_str() )
         {
             OE_DEBUG << LC << "detected multipart data; decoding..." << std::endl;
 
@@ -836,23 +842,14 @@ HTTPClient::doGet( const HTTPRequest& request, const osgDB::Options* options, Pr
         else
         {
             // store headers that we care about
-            part->_headers[IOMetadata::CONTENT_TYPE] = content_type;
-
+            part->_headers[IOMetadata::CONTENT_TYPE] = response._mimeType;
             response._parts.push_back( part.get() );
         }
     }
-    else if (res == CURLE_ABORTED_BY_CALLBACK || res == CURLE_OPERATION_TIMEDOUT)
+    else  /*if (res == CURLE_ABORTED_BY_CALLBACK || res == CURLE_OPERATION_TIMEDOUT) */
     {        
         //If we were aborted by a callback, then it was cancelled by a user
         response._cancelled = true;
-    }
-
-    // Store the mime-type, if any. (Note: CURL manages the buffer returned by
-    // this call.)
-    char* ctbuf = NULL;
-    if ( curl_easy_getinfo(_curl_handle, CURLINFO_CONTENT_TYPE, &ctbuf) == 0 && ctbuf )
-    {
-        response._mimeType = ctbuf;
     }
 
     return response;
@@ -924,6 +921,13 @@ namespace
             }
         }
 
+        if ( !reader )
+        {
+            OE_WARN << LC << "Cannot find an OSG plugin to read response data (ext="
+                << ext << "; mime-type=" << response.getMimeType()
+                << ")" << std::endl;
+        }
+
         return reader;
     }
 }
@@ -944,7 +948,6 @@ HTTPClient::doReadImage(const std::string&    location,
         osgDB::ReaderWriter* reader = getReader(location, response);
         if (!reader)
         {
-            OE_WARN << LC << "Can't find an OSG plugin to read "<<location<<std::endl;
             result = ReadResult(ReadResult::RESULT_NO_READER);
         }
 
@@ -964,6 +967,13 @@ HTTPClient::doReadImage(const std::string&    location,
                 OE_WARN << LC << reader->className() << " failed to read image from " << location << std::endl;
                 result = ReadResult(ReadResult::RESULT_READER_ERROR);
             }
+        }
+        
+        // last-modified (file time)
+        TimeStamp filetime = 0;
+        if ( CURLE_OK == curl_easy_getinfo(_curl_handle, CURLINFO_FILETIME, &filetime) )
+        {
+            result.setLastModifiedTime( filetime );
         }
     }
     else
@@ -1008,7 +1018,6 @@ HTTPClient::doReadNode(const std::string&    location,
         osgDB::ReaderWriter* reader = getReader(location, response);
         if (!reader)
         {
-            OE_WARN << LC << "Can't find an OSG plugin to read "<<location<<std::endl;
             result = ReadResult(ReadResult::RESULT_NO_READER);
         }
 
@@ -1028,6 +1037,13 @@ HTTPClient::doReadNode(const std::string&    location,
                 OE_WARN << LC << reader->className() << " failed to read node from " << location << std::endl;
                 result = ReadResult(ReadResult::RESULT_READER_ERROR);
             }
+        }
+        
+        // last-modified (file time)
+        TimeStamp filetime = 0;
+        if ( CURLE_OK == curl_easy_getinfo(_curl_handle, CURLINFO_FILETIME, &filetime) )
+        {
+            result.setLastModifiedTime( filetime );
         }
     }
     else
@@ -1068,7 +1084,6 @@ HTTPClient::doReadObject(const std::string&    location,
         osgDB::ReaderWriter* reader = getReader(location, response);
         if (!reader)
         {
-            OE_WARN << LC << "Can't find an OSG plugin to read "<<location<<std::endl;
             result = ReadResult(ReadResult::RESULT_NO_READER);
         }
 
@@ -1088,6 +1103,13 @@ HTTPClient::doReadObject(const std::string&    location,
                 OE_WARN << LC << reader->className() << " failed to read object from " << location << std::endl;
                 result = ReadResult(ReadResult::RESULT_READER_ERROR);
             }
+        }
+        
+        // last-modified (file time)
+        TimeStamp filetime = 0;
+        if ( CURLE_OK == curl_easy_getinfo(_curl_handle, CURLINFO_FILETIME, &filetime) )
+        {
+            result.setLastModifiedTime( filetime );
         }
     }
     else
@@ -1127,6 +1149,17 @@ HTTPClient::doReadString(const std::string&    location,
     {
         result = ReadResult( new StringObject(response.getPartAsString(0)), response.getHeadersAsConfig());
     }
+
+    else if ( response.getCode() >= 400 && response.getCode() < 500 && response.getCode() != 404 )
+    {
+        // for request errors, return an error result with the part data intact
+        // so the user can parse it as needed. We only do this for readString.
+        result = ReadResult( 
+            ReadResult::RESULT_SERVER_ERROR,
+            new StringObject(response.getPartAsString(0)), 
+            response.getHeadersAsConfig() );
+    }
+
     else
     {
         result = ReadResult(
@@ -1144,6 +1177,13 @@ HTTPClient::doReadString(const std::string&    location,
                 callback->setNeedsRetry( true );
             }
         }
+    }
+
+    // last-modified (file time)
+    TimeStamp filetime = 0;
+    if ( CURLE_OK == curl_easy_getinfo(_curl_handle, CURLINFO_FILETIME, &filetime) )
+    {
+        result.setLastModifiedTime( filetime );
     }
 
     return result;

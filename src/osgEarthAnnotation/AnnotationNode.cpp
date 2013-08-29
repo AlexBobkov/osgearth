@@ -134,9 +134,11 @@ AnnotationNode::setMapNode( MapNode* mapNode )
                 if ( mapNode )
                     mapNode->getTerrain()->addTerrainCallback( _autoClampCallback.get() );
             }
-        }
+        }		
 
         _mapNode = mapNode;
+
+		applyStyle( this->getStyle() );
     }
 }
 
@@ -144,6 +146,16 @@ void
 AnnotationNode::setAnnotationData( AnnotationData* data )
 {
     _annoData = data;
+}
+
+AnnotationData*
+AnnotationNode::getOrCreateAnnotationData()
+{
+    if ( !_annoData.valid() )
+    {
+        setAnnotationData( new AnnotationData() );
+    }
+    return _annoData.get();
 }
 
 void
@@ -193,7 +205,7 @@ AnnotationNode::setCPUAutoClamping( bool value )
             else
             {
                 // update depth adjustment calculation
-                getOrCreateStateSet()->addUniform( DepthOffsetUtils::createMinOffsetUniform(this) );
+                //getOrCreateStateSet()->addUniform( DepthOffsetUtils::createMinOffsetUniform(this) );
             }
         }
     }
@@ -204,21 +216,13 @@ AnnotationNode::setDepthAdjustment( bool enable )
 {
     if ( enable )
     {
-        osg::StateSet* s = this->getOrCreateStateSet();
-        osg::Program* daProgram = DepthOffsetUtils::getOrCreateProgram(); // cached, not a leak.
-        //TODO: be careful to check for VirtualProgram as well in the future if things change
-        osg::Program* p = dynamic_cast<osg::Program*>( s->getAttribute(osg::StateAttribute::PROGRAM) );
-        if ( !p || p != daProgram )
-            s->setAttributeAndModes( daProgram, osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE );
-
-        s->addUniform( DepthOffsetUtils::createMinOffsetUniform(this) );
-        s->addUniform( DepthOffsetUtils::getIsNotTextUniform() );
+        _doAdapter.setGraph(this);
+        _doAdapter.recalculate();
     }
-    else if ( this->getStateSet() )
+    else
     {
-        this->getStateSet()->removeAttribute(osg::StateAttribute::PROGRAM);
+        _doAdapter.setGraph(0L);
     }
-
     _depthAdj = enable;
 }
 

@@ -58,6 +58,17 @@ _options      ( options )
     init();
 }
 
+FeatureNode::FeatureNode(MapNode* mapNode,
+                         Feature* feature,
+                         const GeometryCompilerOptions& options ) :
+AnnotationNode( mapNode ),
+_feature      ( feature ),
+_draped       ( false ),
+_options      ( options )
+{
+    init();
+}
+
 void
 FeatureNode::init()
 {
@@ -110,6 +121,8 @@ FeatureNode::init()
             node = AnnotationUtils::installTwoPassAlpha( node );
         }
 
+        //OE_NOTICE << GeometryUtils::geometryToGeoJSON( _feature->getGeometry() ) << std::endl;
+
         _attachPoint = new osg::Group();
         _attachPoint->addChild( node );
 
@@ -131,7 +144,7 @@ FeatureNode::init()
             const RenderSymbol* render = _feature->style()->get<RenderSymbol>();
             if ( render && render->depthOffset().isSet() )
             {
-                clampable->depthOffset() = *render->depthOffset();
+                clampable->setDepthOffsetOptions( *render->depthOffset() );
             }
         }
 
@@ -271,7 +284,7 @@ AnnotationNode( mapNode, conf )
 
     if ( srs.valid() && geom.valid() )
     {
-        _draped = conf.value<bool>("draped",false);
+        //_draped = conf.value<bool>("draped",false);
         Feature* feature = new Feature(geom.get(), srs.get(), style);
 
         conf.getIfSet( "geointerp", "greatcircle", feature->geoInterp(), GEOINTERP_GREAT_CIRCLE );

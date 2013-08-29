@@ -39,7 +39,7 @@ namespace
                    ImageLayer*                         layer, 
                    unsigned                            order,
                    const MapInfo&                      mapInfo,
-                   const MPTerrainEngineOptions& opt, 
+                   const MPTerrainEngineOptions&       opt, 
                    TileModel*                          model )
         {
             _key      = key;
@@ -61,10 +61,10 @@ namespace
                 _layer->getProfile()                    &&
                 _layer->getProfile()->getSRS()->isSphericalMercator();
 
-            // fetch the image from the layer, falling back on parent keys utils we are 
-            // able to find one that works.
+            // fetch the image from the layer.
 
-            bool autoFallback = _key.getLevelOfDetail() <= 1;
+            //bool autoFallback = _key.getLevelOfDetail() <= 1;
+            bool autoFallback = false;
 
             TileKey imageKey( _key );
             TileSource*    tileSource   = _layer->getTileSource();
@@ -131,12 +131,12 @@ namespace
                     _order,
                     geoImage.getImage(),
                     locator,
-                    _key.getLevelOfDetail(),
                     _key,
                     isFallbackData );
 
                 return true;
             }
+
             else
             {
                 return false;
@@ -179,8 +179,8 @@ namespace
 
             //if ( _mapf->getHeightField( _key, true, hf, &isFallback ) )
             if (_hfCache->getOrCreateHeightField( *_mapf, _key, true, hf, &isFallback) )
-            {                
-
+            {
+#if 0
                 // Put it in the repo
                 osgTerrain::HeightFieldLayer* hfLayer = new osgTerrain::HeightFieldLayer( hf.get() );
 
@@ -188,8 +188,16 @@ namespace
                 hfLayer->setLocator( GeoLocator::createForKey( _key, mapInfo ) );
 
                 _model->_elevationData = TileModel::ElevationData(hfLayer, isFallback);
-                
+#else
+                _model->_elevationData = TileModel::ElevationData(
+                    hf,
+                    GeoLocator::createForKey( _key, mapInfo ),
+                    isFallback );
+#endif
+
+#if 1
                 if ( *_opt->normalizeEdges() )
+#endif
                 {
                     // next, query the neighboring tiles to get adjacency information.
                     for( int x=-1; x<=1; x++ )
@@ -202,8 +210,7 @@ namespace
                                 if ( nk.valid() )
                                 {
                                     if (_hfCache->getOrCreateHeightField( *_mapf, nk, true, hf, &isFallback) )
-                                    //if ( _mapf->getHeightField(nk, true, hf, &isFallback) )
-                                    {               
+                                    {
                                         if ( mapInfo.isPlateCarre() )
                                         {
                                             HeightFieldUtils::scaleHeightFieldToDegrees( hf.get() );
@@ -213,6 +220,20 @@ namespace
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // parent too.
+                    if ( _key.getLOD() > 0 )
+                    {
+                        if ( _hfCache->getOrCreateHeightField( *_mapf, _key.createParentKey(), true, hf, &isFallback) )
+                        {
+                            if ( mapInfo.isPlateCarre() )
+                            {
+                                HeightFieldUtils::scaleHeightFieldToDegrees( hf.get() );
+                            }
+
+                            _model->_elevationData.setParent( hf.get() );
                         }
                     }
                 }
@@ -249,8 +270,7 @@ TileModelFactory::getHeightFieldCache() const
 void
 TileModelFactory::createTileModel(const TileKey&           key, 
                                   osg::ref_ptr<TileModel>& out_model,
-                                  bool&                    out_hasRealData,
-                                  bool&                    out_hasLodBlendedLayers )
+                                  bool&                    out_hasRealData)
 {
     MapFrame mapf( _map, Map::MASKED_TERRAIN_LAYERS );
     
@@ -265,7 +285,6 @@ TileModelFactory::createTileModel(const TileKey&           key,
     // directly to the key, as opposed to fallback data, which is derived from a lower
     // LOD key.
     out_hasRealData = false;
-    out_hasLodBlendedLayers = false;
     
     // Fetch the image data and make color layers.
     unsigned order = 0;
@@ -281,11 +300,6 @@ TileModelFactory::createTileModel(const TileKey&           key,
             bool addedToModel = build.execute();
             if ( addedToModel )
             {
-                if ( layer->getImageLayerOptions().lodBlending() == true )
-                {
-                    out_hasLodBlendedLayers = true;
-                }
-
                 // only bump the order if we added something to the data model.
                 order++;
             }
@@ -299,28 +313,19 @@ TileModelFactory::createTileModel(const TileKey&           key,
 
 
     // Bail out now if there's no data to be had.
-    if ( model->_colorData.size() == 0 && !model->_elevationData.getHFLayer() )
+    if ( model->_colorData.size() == 0 && !model->_elevationData.getHeightField() )
     {
         return;
     }
 
     // OK we are making a tile, so if there's no heightfield yet, make an empty one.
-    if ( !model->_elevationData.getHFLayer() )
+    if ( !model->_elevationData.getHeightField() )
     {
-        osg::HeightField* hf = HeightFieldUtils::createReferenceHeightField( key.getExtent(), 8, 8 );
-        osgTerrain::HeightFieldLayer* hfLayer = new osgTerrain::HeightFieldLayer( hf );
-        hfLayer->setLocator( GeoLocator::createForKey(key, mapInfo) );
-        model->_elevationData = TileModel::ElevationData( hfLayer, true );
-    }
-
-    // if we're using LOD blending, find and add the parent's state set.
-    if ( out_hasLodBlendedLayers && key.getLevelOfDetail() > 0 && _liveTiles.valid() )
-    {
-        osg::ref_ptr<TileNode> parent;
-        if ( _liveTiles->get( key.createParentKey(), parent ) )
-        {
-            model->_parentStateSet = parent->getPublicStateSet();
-        }
+        osg::HeightField* hf = HeightFieldUtils::createReferenceHeightField( key.getExtent(), 15, 15 );
+        model->_elevationData = TileModel::ElevationData(
+            hf,
+            GeoLocator::createForKey(key, mapInfo),
+            true );
     }
 
     if (!out_hasRealData)
@@ -340,6 +345,11 @@ TileModelFactory::createTileModel(const TileKey&           key,
     {
         out_hasRealData = true;
     }
+
+    // look up the parent model and cache it.
+    osg::ref_ptr<TileNode> parentTile;
+    if ( _liveTiles->get(key.createParentKey(), parentTile) )
+        model->_parentModel = parentTile->getTileModel();
 
     out_model = model.release();
 }

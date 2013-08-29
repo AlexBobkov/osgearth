@@ -87,6 +87,7 @@ _terrainEngineDriver( "mp" )
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "application/json",                     "osgb" );
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "text/json",                            "osgb" );
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "text/x-json",                          "osgb" );
+    osgDB::Registry::instance()->addMimeTypeExtensionMapping( "image/jpg",                            "jpg" );
     
     // pre-load OSG's ZIP plugin so that we can use it in URIs
     std::string zipLib = osgDB::Registry::instance()->createLibraryNameForExtension( "zip" );
@@ -121,15 +122,25 @@ _terrainEngineDriver( "mp" )
     // activate cache-only mode from the environment
     if ( ::getenv("OSGEARTH_CACHE_ONLY") )
     {
-        setOverrideCachePolicy( CachePolicy::CACHE_ONLY );
+        _overrideCachePolicy->usage() = CachePolicy::USAGE_CACHE_ONLY;
+        //setOverrideCachePolicy( CachePolicy::CACHE_ONLY );
         OE_INFO << LC << "CACHE-ONLY MODE set from environment variable" << std::endl;
     }
 
     // activate no-cache mode from the environment
     else if ( ::getenv("OSGEARTH_NO_CACHE") )
     {
-        setOverrideCachePolicy( CachePolicy::NO_CACHE );
+        _overrideCachePolicy->usage() = CachePolicy::USAGE_NO_CACHE;
+        //setOverrideCachePolicy( CachePolicy::NO_CACHE );
         OE_INFO << LC << "NO-CACHE MODE set from environment variable" << std::endl;
+    }
+
+    // cache max age?
+    const char* cacheMaxAge = ::getenv("OSGEARTH_CACHE_MAX_AGE");
+    if ( cacheMaxAge )
+    {
+        TimeSpan maxAge = osgEarth::as<long>( std::string(cacheMaxAge), INT_MAX );
+        _overrideCachePolicy->maxAge() = maxAge;
     }
 
     const char* teStr = ::getenv("OSGEARTH_TERRAIN_ENGINE");

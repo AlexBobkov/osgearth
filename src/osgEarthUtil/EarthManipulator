@@ -331,6 +331,10 @@ namespace osgEarth { namespace Util
 
             void bindPinch(
                 ActionType action, const ActionOptions& =ActionOptions() );
+                
+            void bindTwist(
+                ActionType action, const ActionOptions& =ActionOptions() );
+
    
             void bindMultiDrag(
                 ActionType action, const ActionOptions& =ActionOptions() );
@@ -484,6 +488,16 @@ namespace osgEarth { namespace Util
             void setCameraFrustumOffsets( const osg::Vec2s& offsets );
             const osg::Vec2s& getCameraFrustumOffsets() const { return _camFrustOffsets; }            
 
+            /** Whether or not to disable collision avoidance when new data pages in */
+            bool getDisableCollisionAvoidance() const { return _disableCollisionAvoidance; }
+            void setDisableCollisionAvoidance( bool disableCollisionAvoidance ) { _disableCollisionAvoidance = disableCollisionAvoidance; }
+
+            void setThrowingEnabled(bool throwingEnabled) { _throwingEnabled = throwingEnabled; }
+            bool getThrowingEnabled () const { return _throwingEnabled; }
+            
+            void setThrowDecayRate(double throwDecayRate) { _throwDecayRate = osg::clampBetween(throwDecayRate, 0.0, 1.0); }
+            double getThrowDecayRate () const { return _throwDecayRate; }
+
         private:
 
             friend class EarthManipulator;
@@ -522,7 +536,12 @@ namespace osgEarth { namespace Util
             double _min_vp_duration_s, _max_vp_duration_s;
 
             CameraProjection _camProjType;
-            osg::Vec2s _camFrustOffsets;			
+            osg::Vec2s _camFrustOffsets;	
+
+            bool _disableCollisionAvoidance;
+
+            bool _throwingEnabled;
+            double _throwDecayRate;
         };
 
     public:
@@ -636,7 +655,16 @@ namespace osgEarth { namespace Util
          */
         void  setRotation( const osg::Quat& rotation) { _rotation = rotation; }
 
+        /**
+         * Gets the traversal node mask used to find root MapNode and CoordinateSystemNodes. Default is 0x1.
+         */
+        osg::Node::NodeMask getFindNodeTraversalMask( ) { return _findNodeTraversalMask; }
 
+        /**
+         * Sets the traversal node mask used to find root MapNode and CoordinateSystemNode. Default is 0x1. 
+         * Use this method if you change MapNode or CoordinateSystemNode mask and want manipulator to work with them correctly.  
+         */
+        void  setFindNodeTraversalMask( const osg::Node::NodeMask & nodeMask ) { _findNodeTraversalMask = nodeMask; }
 
     public: // osgGA::MatrixManipulator
 
@@ -689,7 +717,7 @@ namespace osgEarth { namespace Util
         bool intersect(const osg::Vec3d& start, const osg::Vec3d& end, osg::Vec3d& intersection) const;
 
         // resets the mouse event stack and pushes the provided event.
-        void resetMouse( osgGA::GUIActionAdapter& );
+        void resetMouse( osgGA::GUIActionAdapter& aa, bool flushEventStack=true);
 
         // Reset the internal event stack.
         void flushMouseEventStack();
@@ -840,6 +868,10 @@ namespace osgEarth { namespace Util
         double                  _delta_t;
         double                  _t_factor;
         bool                    _thrown;
+        double                  _throw_dx;
+        double                  _throw_dy;
+        double                  _dx;
+        double                  _dy;
 
         // The world coordinate of the Viewpoint focal point.
         osg::Vec3d              _center;
@@ -896,6 +928,10 @@ namespace osgEarth { namespace Util
         double _homeViewpointDuration;
 
         Action _last_action;
+        
+        EventType _last_event;
+        double    _time_s_last_event;
+        
 
         // to support updating the camera after the update traversal (e.g., for tethering)
         osg::observer_ptr<osg::Camera> _viewCamera;
@@ -922,6 +958,8 @@ namespace osgEarth { namespace Util
 
         osg::ref_ptr< TerrainCallback > _terrainCallback;
 
+        // Traversal mask used in established and dtor methods to find MapNode and CoordinateSystemNode
+        osg::Node::NodeMask  _findNodeTraversalMask;
     };
 
 } } // namespace osgEarth::Util
