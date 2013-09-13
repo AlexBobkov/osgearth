@@ -289,7 +289,17 @@ TerrainLayer::getTileSource() const
                 }
             }
 
-            OE_INFO << LC << "cache policy = " << getCachePolicy().usageString() << std::endl;
+            // Unless the user has already configured an expiration policy, use the "last modified"
+            // timestamp of the TileSource to set a minimum valid cache entry timestamp.
+            if ( _tileSource.valid() )
+            {
+                CachePolicy& cp = _runtimeOptions->cachePolicy().mutable_value();
+                if ( !cp.minTime().isSet() && !cp.maxAge().isSet() )
+                {
+                    cp.minTime() = _tileSource->getLastModifiedTime();
+                }
+                OE_INFO << LC << "cache policy = " << getCachePolicy().usageString() << std::endl;
+            }
         }
     }
 
