@@ -19,6 +19,7 @@
 #include "TileModel"
 #include <osgEarth/MapInfo>
 #include <osgEarth/HeightFieldUtils>
+#include <osgEarth/ImageUtils>
 #include <osgTerrain/Locator>
 
 using namespace osgEarth_engine_mp;
@@ -121,16 +122,19 @@ _locator     ( locator ),
 _tileKey     ( tileKey ),
 _fallbackData( fallbackData )
 {
+    osg::Texture::FilterMode minFilter = layer->getImageLayerOptions().minFilter().get();
+    osg::Texture::FilterMode magFilter = layer->getImageLayerOptions().magFilter().get();
+
     _texture = new osg::Texture2D( image );
     _texture->setUnRefImageDataAfterApply( true );
     _texture->setMaxAnisotropy( 16.0f );
     _texture->setResizeNonPowerOfTwoHint(false);
-    _texture->setFilter( osg::Texture::MAG_FILTER, osg::Texture::LINEAR );
-    _texture->setFilter( osg::Texture::MIN_FILTER, osg::Texture::LINEAR );
+    _texture->setFilter( osg::Texture::MAG_FILTER, magFilter );
+    _texture->setFilter( osg::Texture::MIN_FILTER, minFilter );
     _texture->setWrap( osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE );
     _texture->setWrap( osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE );
-    _texture->setWrap( osg::Texture::WRAP_R, osg::Texture::CLAMP_TO_EDGE );
-    //_image = 0L;
+
+    _hasAlpha = image && ImageUtils::hasTransparency(image);
 }
 
 TileModel::ColorData::ColorData(const TileModel::ColorData& rhs) :
@@ -139,9 +143,19 @@ _locator     ( rhs._locator.get() ),
 _texture     ( rhs._texture.get() ),
 _tileKey     ( rhs._tileKey ),
 _fallbackData( rhs._fallbackData ),
-_order       ( rhs._order )
+_order       ( rhs._order ),
+_hasAlpha    ( rhs._hasAlpha )
 {
     //nop
+}
+
+void
+TileModel::ColorData::resizeGLObjectBuffers(unsigned maxSize)
+{
+    if ( _texture.valid() )
+    {
+        _texture->resizeGLObjectBuffers( maxSize );
+    }
 }
 
 void
@@ -202,6 +216,12 @@ TileModel::setParentTileModel(const TileModel* parent)
     _parentModel = parent;
 }
 
+void
+TileModel::resizeGLObjectBuffers(unsigned maxSize)
+{
+    for(ColorDataByUID::iterator i = _colorData.begin(); i != _colorData.end(); ++i )
+        i->second.resizeGLObjectBuffers( maxSize );
+}
 
 void
 TileModel::releaseGLObjects(osg::State* state) const

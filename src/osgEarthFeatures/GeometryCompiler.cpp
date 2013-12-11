@@ -338,7 +338,7 @@ GeometryCompiler::compile(FeatureList&          workingSet,
     }
 
     // instance substitution (replaces marker)
-    else if ( model ) // || icon )
+    else if ( model )
     {
         const InstanceSymbol* instance = model ? (const InstanceSymbol*)model : (const InstanceSymbol*)icon;
 
@@ -365,9 +365,6 @@ GeometryCompiler::compile(FeatureList&          workingSet,
             AltitudeFilter clamp;
             clamp.setPropertiesFromStyle( style );
             localCX = clamp.push( workingSet, localCX );
-
-            // don't set this; we changed the input data.
-            //altRequired = false;
         }
 
         SubstituteModelFilter sub( style );
@@ -422,25 +419,6 @@ GeometryCompiler::compile(FeatureList&          workingSet,
         }
     }
 
-    // polygonized lines.
-    else if ( line != 0L && line->stroke()->widthUnits() != Units::PIXELS )
-    {
-        if ( altRequired )
-        {
-            AltitudeFilter clamp;
-            clamp.setPropertiesFromStyle( style );
-            sharedCX = clamp.push( workingSet, sharedCX );
-            altRequired = false;
-        }
-
-        PolygonizeLinesFilter filter( style );
-        osg::Node* node = filter.push( workingSet, sharedCX );
-        if ( node )
-        {
-            resultGroup->addChild( node );
-        }
-    }
-
     // simple geometry
     else if ( point || line || polygon )
     {
@@ -457,12 +435,8 @@ GeometryCompiler::compile(FeatureList&          workingSet,
             filter.maxGranularity() = *_options.maxGranularity();
         if ( _options.geoInterp().isSet() )
             filter.geoInterp() = *_options.geoInterp();
-        if ( _options.mergeGeometry().isSet() )
-            filter.mergeGeometry() = *_options.mergeGeometry();
         if ( _options.featureName().isSet() )
             filter.featureName() = *_options.featureName();
-        if ( _options.useVertexBufferObjects().isSet())
-            filter.useVertexBufferObjects() = *_options.useVertexBufferObjects();
 
         osg::Node* node = filter.push( workingSet, sharedCX );
         if ( node )
@@ -501,8 +475,9 @@ GeometryCompiler::compile(FeatureList&          workingSet,
     {
         if ( _options.shaderPolicy() == SHADERPOLICY_GENERATE )
         {
-            ShaderGenerator gen( 0L );  // no ss cache because we will optimize later
-            resultGroup->accept( gen );
+            // no ss cache because we will optimize later.
+            ShaderGenerator gen;
+            gen.run( resultGroup.get() );
         }
         else if ( _options.shaderPolicy() == SHADERPOLICY_DISABLE )
         {
@@ -514,29 +489,6 @@ GeometryCompiler::compile(FeatureList&          workingSet,
 
     // Optimize stateset sharing.
     sscache->optimize( resultGroup.get() );
-    
-    // todo: this helps a lot, but is currently broken for non-triangle
-    // geometries. (gw, 12-17-2012)
-#if 0
-        osgUtil::Optimizer optimizer;
-        optimizer.optimize(
-            resultGroup.get(),
-            osgUtil::Optimizer::VERTEX_PRETRANSFORM );
-            osgUtil::Optimizer::VERTEX_POSTTRANSFORM );
-#endif
-
-#if 0
-    // if necessary, modify the bounding boxes of the underlying Geometry
-    // drawables so they will work with clamping.
-    if (altitude &&
-        (altitude->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN || altitude->clamping() == AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN) &&
-        altitude->technique() == AltitudeSymbol::TECHNIQUE_GPU)
-    {
-        OverlayGeometryAdjuster adjuster( -10000.0f, 10000.0f );
-        resultGroup->accept( adjuster );
-    }
-#endif
-
 
     //osgDB::writeNodeFile( *(resultGroup.get()), "out.osg" );
 

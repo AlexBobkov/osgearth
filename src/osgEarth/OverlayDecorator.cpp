@@ -382,12 +382,8 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
                                                    PerViewData&          pvd)
 {
     static int s_frame = 1;
-    static osg::Vec3d zero(0.0, 0.0, 0.0);
 
-    osg::Matrixd invViewMatrix = cv->getCurrentCamera()->getInverseViewMatrix();
-    osg::Vec3d eye = zero * invViewMatrix;
-    //osg::Vec3 eye = cv->getEyePoint();
-    eye = cv->getViewPoint();
+    osg::Vec3d eye = cv->getViewPoint();
 
     double eyeLen;
     osg::Vec3d worldUp;
@@ -413,9 +409,6 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
         const SpatialReference* geoSRS = _engine->getTerrain()->getSRS();
         osg::Vec3d geodetic;
         geoSRS->transformFromWorld(eye, geodetic);
-
-        //double lat, lon;
-        //_ellipsoid->convertXYZToLatLongHeight( eye.x(), eye.y(), eye.z(), lat, lon, hasl );
 
         hasl = geodetic.z();
         R = eyeLen - hasl;

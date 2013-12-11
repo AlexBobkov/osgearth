@@ -86,6 +86,18 @@ namespace
         out.y() = (c.y()-y)*cosa + (c.x()-x)*sina + c.y();
         out.z() = 0.0f;
     }
+
+    // Convenience method to create safe Control geometry.
+    // Since Control geometry can change, we need to always set it
+    // to DYNAMIC data variance.
+    osg::Geometry* newGeometry()
+    {
+        osg::Geometry* geom = new osg::Geometry();
+        geom->setUseVertexBufferObjects( true );
+        geom->setUseDisplayList( false );
+        geom->setDataVariance( osg::Object::DYNAMIC );
+        return geom;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +190,8 @@ Control::init()
 
     _geode = new osg::Geode();
     this->addChild( _geode );
+
+    _alphaEffect = new AlphaEffect(this->getOrCreateStateSet());
 }
 
 void
@@ -360,6 +374,47 @@ Control::setVertFill( bool vfill, float minHeight ) {
     }
 }
 
+bool 
+Control::parentIsVisible() const
+{
+    bool visible = true;
+
+    // ------------------------------------------------------------------------
+    // -- If visible through any parent, consider it visible and return true --
+    // -- Also visible if the parent is not a control (is a top-level)       --
+    // ------------------------------------------------------------------------
+    for( unsigned i=0; i<getNumParents(); ++i )
+    {
+        const Control* c = dynamic_cast<const Control*>( getParent(i) );
+
+        // ----------------------------------------
+        // -- Parent not a control, keep looking --
+        // ----------------------------------------
+        if( c == NULL )
+            continue;
+        
+        // -----------------------------------------
+        // -- If this path is visible, we're done --
+        // -----------------------------------------
+        if( c->visible() && c->parentIsVisible() )
+        {
+            return true;
+        }
+        else
+        {
+            // ---------------------------------------------
+            // -- If their is a parent control, but it's  --
+            // -- not visible, change our assumption but  --
+            // -- keep looking at other parent controls   --
+            // ---------------------------------------------            
+            visible = false;
+        }
+    }
+
+    return visible;
+}
+
+
 void
 Control::setForeColor( const osg::Vec4f& value ) {
     if ( value != _foreColor.value() ) {
@@ -532,7 +587,7 @@ Control::draw(const ControlContext& cx)
 
     // by default, rendering a Control directly results in a colored quad. Usually however
     // you will not render a Control directly, but rather one of its subclasses.
-    if ( visible() == true )
+    if ( visible()  && parentIsVisible() )
     {
         if ( !(_backColor.isSet() && _backColor->a() == 0) && _renderSize.x() > 0 && _renderSize.y() > 0 )
         {
@@ -540,8 +595,7 @@ Control::draw(const ControlContext& cx)
 
             // draw the background poly:
             {
-                _geom = new osg::Geometry();
-                _geom->setUseVertexBufferObjects(true);
+                _geom = newGeometry();
 
                 float rx = _renderPos.x() - padding().left();
                 float ry = _renderPos.y() - padding().top();
@@ -597,6 +651,9 @@ Control::handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa, 
 {
     bool handled = false;
 
+    if( !visible() || !parentIsVisible() )
+        return false;
+
     if ( _eventHandlers.size() > 0 )
     {    
         handled = true;
@@ -632,6 +689,7 @@ namespace
     // override osg Text to get at some of the internal properties
     struct LabelText : public osgText::Text
     {
+        LabelText() : osgText::Text() { setDataVariance(osg::Object::DYNAMIC); }
         const osg::BoundingBox& getTextBB() const { return _textBB; }
         const osg::Matrix& getATMatrix(int contextID) const { return _autoTransformCache[contextID]._matrix; }
     };
@@ -872,7 +930,7 @@ LabelControl::draw( const ControlContext& cx )
 {
     Control::draw( cx );
 
-    if ( _drawable.valid() && visible() == true )
+    if ( _drawable.valid() && visible() && parentIsVisible() )
     {
         float vph = cx._vp->height();
 
@@ -880,7 +938,6 @@ LabelControl::draw( const ControlContext& cx )
         osg::BoundingBox bbox = t->getTextBB();
         t->setPosition( osg::Vec3( _renderPos.x(), vph - _renderPos.y(), 0 ) );
         getGeode()->addDrawable( _drawable.get() );
-        //out.push_back( _drawable.get() );
     }
 }
 
@@ -931,8 +988,9 @@ LabelControl(text)
 // ---------------------------------------------------------------------------
 
 ImageControl::ImageControl( osg::Image* image ) :
-_rotation( 0.0, Units::RADIANS ),
-_fixSizeForRot( false )
+_rotation     ( 0.0, Units::RADIANS ),
+_fixSizeForRot( false ),
+_opacity      ( 1.0f )
 {
     setImage( image );
 }
@@ -1016,11 +1074,10 @@ ImageControl::draw( const ControlContext& cx )
 {
     Control::draw( cx );
 
-    if ( visible() == true && _image.valid() )
+    if ( visible() && parentIsVisible() && _image.valid() )
     {
         //TODO: this is not precisely correct..images get deformed slightly..
-        osg::Geometry* g = new osg::Geometry();
-        g->setUseVertexBufferObjects(true);
+        osg::Geometry* g = newGeometry();
 
         float rx = osg::round( _renderPos.x() );
         float ry = osg::round( _renderPos.y() );
@@ -1181,10 +1238,9 @@ HSliderControl::draw( const ControlContext& cx )
 {
     Control::draw( cx );
 
-    if ( visible() == true )
+    if ( visible() == true && parentIsVisible())
     {
-        osg::ref_ptr<osg::Geometry> g = new osg::Geometry();
-        g->setUseVertexBufferObjects(true);
+        osg::ref_ptr<osg::Geometry> g = newGeometry();
 
         float rx = osg::round( _renderPos.x() );
         float ry = osg::round( _renderPos.y() );
@@ -1225,6 +1281,9 @@ HSliderControl::draw( const ControlContext& cx )
 bool
 HSliderControl::handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa, ControlContext& cx )
 {
+    if( !visible() || !parentIsVisible() )
+        return false;
+
     if ( ea.getEventType() == osgGA::GUIEventAdapter::DRAG )
     {
         float relX = ea.getX() - _renderPos.x();
@@ -1290,10 +1349,9 @@ CheckBoxControl::draw( const ControlContext& cx )
 {
     Control::draw( cx );
 
-    if ( visible() == true )
+    if ( visible() == true && parentIsVisible() )
     {
-        osg::Geometry* g = new osg::Geometry();
-        g->setUseVertexBufferObjects(true);
+        osg::Geometry* g = newGeometry();
 
         float rx = osg::round( _renderPos.x() );
         float ry = osg::round( _renderPos.y() );
@@ -1333,6 +1391,9 @@ CheckBoxControl::draw( const ControlContext& cx )
 bool
 CheckBoxControl::handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa, ControlContext& cx )
 {
+    if( !visible() || !parentIsVisible() )
+        return false;
+
     if ( ea.getEventType() == osgGA::GUIEventAdapter::PUSH )
     {
         setValue( !_value );
@@ -1441,12 +1502,6 @@ Container::Container( const Alignment& halign, const Alignment& valign, const Gu
 }
 
 void
-Container::setFrame( Frame* frame )
-{
-    OE_WARN << LC << "Container::setFrame() is deprecated, please use setBorderColor instead" << std::endl;
-}
-
-void
 Container::getChildren(std::vector<Control*>& out)
 {
     for(unsigned i=1; i<getNumChildren(); ++i )
@@ -1521,17 +1576,6 @@ Container::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
         out_size.set(
             _renderSize.x() + margin().x(),
             _renderSize.y() + margin().y() );
-
-#if 0
-        if ( _frame.valid() )
-        {
-            _frame->setWidth( _renderSize.x() );
-            _frame->setHeight( _renderSize.y() );
-
-            osg::Vec2f dummy;
-            _frame->calcSize( cx, dummy );
-        }
-#endif
     }
 }
 
@@ -1552,28 +1596,20 @@ void
 Container::calcPos(const ControlContext& context, const osg::Vec2f& cursor, const osg::Vec2f& parentSize)
 {
     Control::calcPos( context, cursor, parentSize );
-#if 0
-    // process the frame.. it's not a child of the container
-    if ( visible() == true && _frame.valid() )
-    {
-        _frame->calcPos( context, _renderPos - padding().offset(), parentSize );
-    }
-#endif
 }
 
 void
 Container::draw( const ControlContext& cx )
 {
-#if 0
-    if ( _frame.valid() )
-        _frame->draw( cx );
-#endif
     Control::draw( cx );
 }
 
 bool
 Container::handle( const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa, ControlContext& cx )
 {
+    if( !visible() || !parentIsVisible() )
+        return false;
+
     bool handled = false;
     std::vector<Control*> children;
     getChildren( children );
@@ -2608,9 +2644,6 @@ ControlCanvas::init( osgViewer::View* view, bool registerCanvas )
     // deter the optimizer
     this->setDataVariance( osg::Object::DYNAMIC );
 
-    // cache for sharing virtual program attributes:
-    this->_stateSetCache = new StateSetCache();
-
     osg::ref_ptr<osgGA::GUIEventHandler> pViewportHandler = new ViewportHandler(this);
     osg::ref_ptr<osgGA::GUIEventHandler> pControlCanvasEventHandler = new ControlCanvasEventHandler(this);
 
@@ -2800,11 +2833,8 @@ ControlCanvas::update( const osg::FrameStamp* frameStamp )
     // shaderize.
     // we don't really need to rebuild shaders on every dirty; we could probably
     // just do it on add/remove controls; but that's an optimization for later
-    ShaderGenerator shaderGen( _stateSetCache.get() );
-    VirtualProgram* temp = new VirtualProgram();
-    temp->setInheritShaders( true );
-    shaderGen.setVirtualProgramTemplate( temp );
-    this->accept( shaderGen );
+    ShaderGenerator shaderGen;
+    shaderGen.run( this );
 
     _contextDirty = false;
 }

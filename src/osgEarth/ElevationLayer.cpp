@@ -94,6 +94,23 @@ namespace
             op( hf.get() );
         }
     };
+
+    // perform very basic sanity-check validation on a heightfield.
+    bool validateHeightField(osg::HeightField* hf)
+    {
+        if (!hf) 
+            return false;
+        if (hf->getNumRows() < 2 || hf->getNumRows() > 1024)
+            return false;
+        if (hf->getNumColumns() < 2 || hf->getNumColumns() > 1024)
+            return false;
+        if (hf->getHeightList().size() != hf->getNumColumns() * hf->getNumRows())
+            return false;
+        if (hf->getXInterval() < 1e-5 || hf->getYInterval() < 1e-5)
+            return false;
+        
+        return true;
+    }
 }
 
 //------------------------------------------------------------------------
@@ -242,28 +259,6 @@ ElevationLayer::createHeightFieldFromTileSource(const TileKey&    key,
         result = assembleHeightFieldFromTileSource( key, progress );
     }
 
-#if 0
-    // If the profiles don't match, use a more complicated technique to assemble the tile:
-    if ( !key.getProfile()->isEquivalentTo( getProfile() ) )
-    {
-        result = assembleHeightFieldFromTileSource( key, progress );
-    }
-    else
-    {
-        // Only try to get data if the source actually has data
-        if ( !source->hasData( key ) )
-        {
-            OE_DEBUG << LC << "Source for layer has no data at " << key.str() << std::endl;
-            return 0L;
-        }
-
-        // Make it from the source:
-        result = source->createHeightField( key, _preCacheOp.get(), progress );
-    }
-#endif
-
-
-
     return result;
 }
 
@@ -392,10 +387,16 @@ GeoHeightField
 ElevationLayer::createHeightField(const TileKey&    key, 
                                   ProgressCallback* progress )
 {
-    osg::HeightField* result = 0L;
+    osg::ref_ptr<osg::HeightField> result;
 
     // If the layer is disabled, bail out.
     if ( _runtimeOptions.enabled().isSetTo( false ) )
+    {
+        return GeoHeightField::INVALID;
+    }
+
+    // Check the max data level, which limits the LOD of available data.
+    if ( _runtimeOptions.maxDataLevel().isSet() && key.getLOD() > _runtimeOptions.maxDataLevel().value() )
     {
         return GeoHeightField::INVALID;
     }
@@ -426,19 +427,22 @@ ElevationLayer::createHeightField(const TileKey&    key,
         ReadResult r = cacheBin->readObject( key.str(), getCachePolicy().getMinAcceptTime() );
         if ( r.succeeded() )
         {
-            result = r.release<osg::HeightField>();
-            if ( result )
+            osg::HeightField* cachedHF = r.get<osg::HeightField>();
+            if ( cachedHF && validateHeightField(cachedHF) )
+            {
+                result = cachedHF;
                 fromCache = true;
+            }
         }
     }
 
     // if we're cache-only, but didn't get data from the cache, fail silently.
-    if ( !result && isCacheOnly() )
+    if ( !result.valid() && isCacheOnly() )
     {
         return GeoHeightField::INVALID;
     }
 
-    if ( !result )
+    if ( !result.valid() )
     {
         // bad tilesource? fail
         if ( !getTileSource() || !getTileSource()->isOK() )
@@ -449,6 +453,13 @@ ElevationLayer::createHeightField(const TileKey&    key,
 
         // build a HF from the TileSource.
         result = createHeightFieldFromTileSource( key, progress );
+
+        // validate it to make sure it's legal.
+        if ( result.valid() && !validateHeightField(result.get()) )
+        {
+            OE_WARN << LC << "Driver " << getTileSource()->getName() << " returned an illegal heightfield" << std::endl;
+            result = 0L;
+        }
     }
 
     // cache if necessary
@@ -618,12 +629,12 @@ ElevationLayerVector::createHeightField(const TileKey&                  key,
         //OE_NOTICE << "Num fallbacks=" << numFallbacks << " numHeightFields=" << heightFields.size() << " is fallback " << *out_isFallback << std::endl;
     }   
 
-    if ( heightFields.size() == 0 ) //&& offsetHeightFields.size() == 0 )
+    if ( heightFields.size() == 0 )
     {
         //If we got no heightfields but were requested to fallback, create an empty heightfield.
         if ( fallback )
         {
-            unsigned defaultSize = _expressTileSize.getOrUse( 8 );
+            unsigned defaultSize = _expressTileSize.getOrUse( 7 );
 
             out_result = HeightFieldUtils::createReferenceHeightField( 
                 keyToUse.getExtent(), 
